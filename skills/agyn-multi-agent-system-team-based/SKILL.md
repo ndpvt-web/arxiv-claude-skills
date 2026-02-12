@@ -1,176 +1,202 @@
 ---
 name: "agyn-multi-agent-system-team-based"
-description: "Organize multi-agent teams with specialized roles (manager, researcher, engineer, reviewer) to solve complex software engineering issues through structured methodology: research, task specification, implementation, and iterative review. Use when: 'set up a team to fix this bug', 'use agents to resolve this issue', 'multi-agent software engineering', 'team-based issue resolution', 'organize agents to implement this feature', 'coordinate agents with roles to solve this'."
+description: "Orchestrate multi-agent teams for autonomous software engineering using the Agyn methodology: coordinator, researcher, implementer, and reviewer agents with structured communication, isolated sandboxes, and iterative review loops. Use when: 'set up a multi-agent team to fix this bug', 'use agent swarm to implement this feature', 'resolve this GitHub issue with a team of agents', 'coordinate agents to refactor this module', 'spin up an engineering team to tackle this task', 'use Agyn-style agents to solve this problem'."
 ---
 
-This skill enables Claude to orchestrate multi-agent teams that mirror real engineering organizations for autonomous software engineering. Based on the Agyn system (Benkovich & Valkov, 2026), it decomposes issue resolution into four specialized roles -- manager, researcher, engineer, and reviewer -- coordinated through a manager-centric hub with structured methodology phases. The key insight: replicating team structure, methodology, and communication outperforms single-agent approaches by 7%+ on standard benchmarks, because role separation lets each agent optimize for its specific task (exploration vs. implementation vs. critique) rather than context-switching within a monolithic prompt.
+This skill enables Claude to orchestrate autonomous software engineering teams modeled after the Agyn architecture (Benkovich & Valkov, 2026). Instead of treating issue resolution as a single monolithic prompt, Claude decomposes work across four specialized agent roles — Coordinator, Researcher, Implementer, and Reviewer — each operating in isolated sandboxes with structured inter-agent communication. The agents follow a defined development methodology: analysis, task specification, implementation, and iterative review, mirroring how real engineering teams operate. This approach resolves 72.2% of SWE-bench 500 tasks, outperforming comparable single-agent baselines.
 
 ## When to Use
 
 - When the user asks to resolve a GitHub issue or bug that requires codebase exploration, implementation, and validation
-- When implementing a non-trivial feature that benefits from separation of research, coding, and review
-- When the user explicitly requests a multi-agent or team-based approach to a software task
-- When tackling a complex codebase change where understanding the problem and fixing it are distinct cognitive tasks
-- When the user wants iterative code review built into the implementation process
-- When working on production codebases where a single-pass approach risks missing edge cases
+- When the user wants a multi-agent swarm to implement a feature end-to-end
+- When the user needs to refactor a module and wants structured research before changes are made
+- When the user has a complex task that benefits from separating investigation from implementation from review
+- When the user explicitly asks for an "Agyn-style" or "team-based" agent workflow
+- When the user wants parallel agents to collaborate on a pull request with iterative review
+- When a task involves unfamiliar code where research must precede implementation
 
 ## Key Technique
 
-**Manager-Centric Multi-Agent Coordination**: Unlike pipeline systems where agents run in a fixed sequence, Agyn uses a manager agent as the single coordination point. The manager dynamically decides when to invoke the researcher (for more exploration), the engineer (for implementation), or the reviewer (for quality checks). All inter-agent communication flows through the manager -- agents never talk directly to each other. This simplifies control flow and makes the entire process traceable.
+The Agyn system's core insight is that **organizational design matters as much as model capability**. Rather than feeding a single agent an issue description and hoping it produces a correct patch, Agyn replicates the structure of a real engineering team. Four agents — Coordinator, Researcher, Implementer, and Reviewer — communicate through structured messages, each with a narrow mandate and isolated execution environment. The Coordinator decomposes problems and routes work; the Researcher analyzes the codebase to produce structured findings; the Implementer writes code guided by those findings; and the Reviewer validates against the original requirements, triggering re-research when needed.
 
-**Methodology Over Steps**: The system follows a development methodology (research -> specification -> implementation -> review) but does not prescribe how many steps each phase takes. The manager can loop back to research if the engineer's implementation reveals new complexity, or request additional review rounds. The reviewer uses an explicit approve-or-request-changes mechanism: the loop continues until the reviewer approves, providing a concrete acceptance signal rather than a heuristic stopping condition.
+The iterative review loop is what distinguishes Agyn from pipeline-based multi-agent systems. When the Reviewer identifies failures — test regressions, unmet requirements, logical errors — it produces specific feedback that flows back through the Coordinator to the Researcher, who re-analyzes the relevant code sections. The Implementer then creates targeted fixes rather than rewriting from scratch. This loop continues until the Reviewer passes the changes or an iteration limit is reached. This progressive refinement mimics the PR review cycle in real teams and prevents the compounding errors that plague single-pass approaches.
 
-**Isolated Sandboxes With Full Tooling**: Each agent operates in its own environment with shell access, git, and package management. Engineers can freely explore the codebase, test partial solutions, and discard failed attempts without polluting other agents' state. This mirrors how real developers work on feature branches -- experimentation is cheap and reversible.
+Sandbox isolation is the third pillar. Each agent operates within bounded environments with defined resource constraints and repository access limits. This prevents agents from making unintended modifications, enables safe experimentation (e.g., the Researcher can explore code paths without side effects), and ensures that only the Implementer's final, reviewed changes are applied. Structured communication — messages containing task parameters, file references, and execution constraints — replaces the lossy context passing of monolithic prompts.
 
 ## Step-by-Step Workflow
 
-1. **Spawn a team with four named agents**: Create a team using TeamCreate, then spawn agents for each role: `manager` (general-purpose, coordinates), `researcher` (Explore-type, investigates codebase), `engineer` (general-purpose, writes code), and `reviewer` (general-purpose, reviews changes). The manager is the team lead.
+1. **Receive and analyze the issue**: Parse the user's request into a concrete issue specification with success criteria, target repository paths, and constraints. If the user provides a GitHub issue URL, fetch its details. Identify whether this is a bug fix, feature implementation, or refactoring task.
 
-2. **Manager analyzes the issue**: The manager reads the issue description, identifies the repository, and formulates the high-level problem. It decides what the researcher needs to investigate first -- root cause analysis, affected files, relevant tests, and API contracts.
+2. **Spawn the Coordinator agent**: Create a team using `TeamCreate` and launch a general-purpose agent as the Coordinator. The Coordinator owns the task list, decomposes the problem, and manages all inter-agent routing. It does NOT write code — it orchestrates.
 
-3. **Researcher explores the codebase**: The researcher agent searches for relevant code paths, reads related files, identifies the root cause or the integration points for a new feature. It produces a structured research summary: affected files, root cause hypothesis, relevant tests, and dependencies.
+3. **Launch the Researcher agent in an Explore role**: Spawn an Explore-type agent (read-only) tasked with codebase analysis. The Researcher's mandate is: identify relevant files, trace execution paths, map dependencies, understand existing patterns, and produce a structured research report. Give it the issue description and any known entry points.
 
-4. **Manager synthesizes a task specification**: The manager takes the researcher's output and writes a concrete, unambiguous task specification: what files to modify, what behavior to change, what tests should pass, and what constraints to respect. This specification is the contract between research and implementation.
+4. **Collect research findings into a task specification**: The Coordinator receives the Researcher's report — a list of relevant files, root cause analysis (for bugs), or design context (for features) — and produces a precise task specification. This spec includes: files to modify, the expected behavior, constraints to respect, and test commands to validate.
 
-5. **Engineer implements the solution**: The engineer receives the task specification and works in its sandbox -- modifying files, running tests, and iterating until the implementation matches the spec. It creates a branch and opens a pull request with a descriptive title including the task identifier.
+5. **Launch the Implementer agent**: Spawn a general-purpose agent (with write access) that receives the task specification and research findings. The Implementer writes code changes, runs tests in its sandbox, and produces a candidate patch. It should NOT explore the codebase broadly — that was the Researcher's job.
 
-6. **Reviewer inspects the pull request**: The reviewer reads the diff, checks for correctness against the task specification, verifies test coverage, and looks for edge cases. It either approves or leaves inline comments requesting specific changes.
+6. **Launch the Reviewer agent**: Spawn a general-purpose agent to review the Implementer's changes. The Reviewer reads the diff, runs the test suite, checks alignment with the original issue requirements, and produces a structured review: PASS (with rationale) or FAIL (with specific issues and file:line references).
 
-7. **Iterate until approval**: If the reviewer requests changes, the manager routes the feedback to the engineer, who addresses each comment and pushes updates. The reviewer re-inspects. This loop continues until the reviewer explicitly approves.
+7. **Handle review feedback in an iterative loop**: If the Reviewer returns FAIL, the Coordinator routes the specific feedback back. For understanding-related failures, re-engage the Researcher to gather additional context. For implementation-related failures, send targeted fix instructions to the Implementer. Each iteration should be narrowly scoped — fix the specific failure, don't rewrite.
 
-8. **Manager validates and finalizes**: Once the reviewer approves, the manager performs a final check -- confirms tests pass, the PR is clean, and signals completion. The manager uses the `finish` action only when the entire methodology has been satisfied.
+8. **Cap iterations and converge**: Set a maximum of 3 review iterations. If the patch passes, apply it. If the iteration limit is reached with a still-failing review, present the best attempt to the user with a summary of remaining issues and the Reviewer's final feedback.
 
-9. **Handle escalation**: If the engineer is stuck after multiple iterations, the manager routes the problem back to the researcher for additional investigation rather than letting the engineer thrash. This prevents wasted cycles on incorrect assumptions.
+9. **Aggregate results and clean up**: Collect the final diff, test results, and a summary of the methodology (research findings, implementation decisions, review outcomes). Shut down all agents gracefully using `SendMessage` with `shutdown_request`. Clean up the team with `TeamDelete`.
 
-10. **Shut down the team**: Once the task is complete and verified, the manager sends shutdown requests to all agents and cleans up the team resources.
+10. **Present the solution**: Show the user the final changes with context: what was found during research, what approach was chosen and why, what the Reviewer validated, and any caveats.
 
 ## Concrete Examples
 
-**Example 1: Resolving a Bug in a Django Application**
+**Example 1: Fixing a bug reported in a GitHub issue**
 
 ```
-User: "Use a team of agents to fix issue #247 -- the user profile API
-returns 500 when the bio field is null"
+User: "Resolve this issue — users report that the /api/export endpoint returns
+a 500 error when the dataset has null values in the 'timestamp' column."
 
-Manager's analysis:
-- Issue: NullPointerError in profile serialization
-- Need: Find serializer, identify null handling gap, fix, test
+Approach:
+1. Coordinator creates tasks: research the export endpoint, identify null handling,
+   implement fix, validate with tests.
 
-Step 1 - Manager spawns team, assigns researcher to investigate:
-  "Find the profile serializer, the API view that serves /api/profile/,
-   and any existing tests for null bio fields."
+2. Researcher (Explore agent) traces the /api/export route:
+   - Finds route handler in src/routes/export.ts:45
+   - Follows data flow to src/services/exporter.ts:112 where timestamps are
+     formatted without null checks
+   - Identifies that formatTimestamp() in src/utils/date.ts:23 throws on null input
+   - Notes existing test file: tests/export.test.ts (no null-value test case)
 
-Step 2 - Researcher reports back:
-  "Root cause: ProfileSerializer in api/serializers.py:45 calls
-   bio.strip() without null check. View is in api/views.py:112.
-   Test file: tests/test_profile_api.py has no null-bio test case."
+   Research report:
+   - Root cause: formatTimestamp() at src/utils/date.ts:23 calls .toISOString()
+     on null
+   - Fix location: src/utils/date.ts:23 or src/services/exporter.ts:112
+   - Related pattern: other formatters in date.ts handle null (see formatDate:31)
+   - Test gap: no null-column test in tests/export.test.ts
 
-Step 3 - Manager writes task spec:
-  - Modify api/serializers.py: add null guard before bio.strip()
-  - Add test in tests/test_profile_api.py: test_profile_null_bio
-  - Ensure existing tests still pass
+3. Coordinator produces task spec:
+   - Add null guard in formatTimestamp() following existing pattern from formatDate()
+   - Add test case for null timestamp column in export test suite
+   - Run: npm test -- --grep "export"
 
-Step 4 - Engineer implements fix, opens PR, runs tests (all pass)
+4. Implementer adds null check and test case, runs tests — all pass.
 
-Step 5 - Reviewer checks PR:
-  "The fix handles None but not empty string. Add a test for
-   bio='' to confirm strip() works on empty strings too."
+5. Reviewer validates:
+   - Diff is minimal and follows existing patterns: PASS
+   - New test covers the exact failure scenario: PASS
+   - No regressions in test suite: PASS
+   - Review: APPROVED
 
-Step 6 - Engineer adds empty-string test, pushes update
-
-Step 7 - Reviewer approves. Manager finalizes.
+Output: Two-file patch (src/utils/date.ts, tests/export.test.ts) with explanation.
 ```
 
-**Example 2: Implementing a New Feature Across Multiple Files**
+**Example 2: Implementing a new feature with unfamiliar codebase**
 
 ```
-User: "Set up a multi-agent team to add CSV export to the reports module"
+User: "Add rate limiting to all public API endpoints. Use a sliding window
+algorithm. I want it configurable per-route."
 
-Manager's analysis:
-- Feature: Add CSV download endpoint for existing report data
-- Need: Understand report data model, existing export patterns, API conventions
+Approach:
+1. Coordinator identifies subtasks: research API routing layer, research
+   existing middleware patterns, implement rate limiter, implement per-route
+   config, review.
 
-Step 1 - Researcher investigates:
-  "Reports are generated in reports/generator.py, served via
-   reports/views.py. Existing PDF export uses reports/exporters/pdf.py
-   pattern. Data models in reports/models.py. Tests in tests/test_exports.py."
+2. Researcher analyzes:
+   - Middleware chain in src/middleware/index.ts — finds auth, logging, cors
+   - Route registration in src/routes/index.ts — finds registerPublicRoutes()
+   - Config pattern in src/config/index.ts — env-based with defaults
+   - Existing Redis connection in src/services/redis.ts (available for state)
 
-Step 2 - Manager writes task spec:
-  - Create reports/exporters/csv.py following pdf.py's interface pattern
-  - Add GET /api/reports/{id}/export/csv endpoint in reports/views.py
-  - Add URL route in reports/urls.py
-  - Add tests: test_csv_export_success, test_csv_export_empty_report,
-    test_csv_export_special_characters
-  - Use Python's csv module, stream response with appropriate headers
+   Research report:
+   - Middleware pattern: export function, register in chain at src/middleware/index.ts:8
+   - Config pattern: add to src/config/index.ts with RATE_LIMIT_ prefix
+   - Redis client available at src/services/redis.ts:getClient()
+   - Public routes identifiable via registerPublicRoutes() in src/routes/index.ts:34
+   - Per-route config: recommend decorator/metadata pattern matching existing
+     route options at src/routes/types.ts:12
 
-Step 3 - Engineer implements across 4 files, runs tests
+3. Implementer creates:
+   - src/middleware/rateLimit.ts — sliding window using Redis sorted sets
+   - Adds route-level config option to src/routes/types.ts
+   - Registers middleware in src/middleware/index.ts
+   - Adds config defaults in src/config/index.ts
+   - Writes tests in tests/middleware/rateLimit.test.ts
 
-Step 4 - Reviewer flags: "CSV export doesn't handle Unicode BOM for
-  Excel compatibility. Add utf-8-sig encoding."
+4. Reviewer flags: "Rate limit key uses IP only — behind a load balancer
+   this will limit all users together. Should use X-Forwarded-For with fallback."
 
-Step 5 - Engineer fixes encoding, reviewer approves
+5. Iteration 2: Implementer fixes key extraction to use X-Forwarded-For header
+   with configurable trust proxy setting.
 
-Step 6 - Manager confirms all tests pass, signals completion
+6. Reviewer: APPROVED — all tests pass, pattern matches existing middleware.
+
+Output: Multi-file patch with rate limiting middleware, per-route configuration,
+and test suite.
 ```
 
-**Example 3: Refactoring with Safety Net**
+**Example 3: Coordinating a refactoring task**
 
 ```
-User: "Organize agents to refactor the payment processing from
-synchronous to async"
+User: "Refactor the authentication module to use JWT instead of session cookies.
+Don't break existing endpoints."
 
-Manager's analysis:
-- High-risk refactor affecting critical path
-- Need thorough research on all call sites before any code changes
+Approach:
+1. Coordinator creates phased plan: research current auth flow, research all
+   consumers, implement JWT auth, implement backward compatibility, review.
 
-Step 1 - Researcher maps all synchronous call sites:
-  "Found 12 call sites across 6 files. 3 are in request handlers
-   (must become async), 2 are in management commands (can stay sync
-   with async_to_sync wrapper), 7 are in Celery tasks (already async
-   context)."
+2. Researcher maps the full auth surface:
+   - Session creation in src/auth/session.ts
+   - 14 endpoints that call req.session.user
+   - 3 middleware functions checking session validity
+   - Frontend cookie handling in src/client/api.ts
+   - Test fixtures using session mocking in tests/helpers/auth.ts
 
-Step 2 - Manager writes phased task spec:
-  Phase A: Convert core payment function to async
-  Phase B: Update 3 request handlers to async views
-  Phase C: Add async_to_sync wrappers for management commands
-  Phase D: Verify Celery tasks work with async function
+3. Coordinator creates a task spec prioritizing backward compatibility:
+   - Support both JWT (Authorization header) and session cookies during migration
+   - New JWT middleware that falls back to session check
 
-Step 3 - Engineer implements phase by phase, running tests after each
+4. Implementer creates JWT utilities, dual-mode auth middleware, and updates
+   test helpers. Runs full test suite.
 
-Step 4 - Reviewer catches: "The webhook handler in phase B lost its
-  @csrf_exempt decorator during conversion."
+5. Reviewer catches: "The refresh token endpoint still creates a session object
+   — this will leak sessions even for JWT-authenticated users."
 
-Step 5 - Engineer restores decorator, reviewer approves
+6. Iteration 2: Researcher confirms the refresh endpoint at src/auth/refresh.ts:28
+   creates sessions unconditionally. Implementer adds a conditional check.
 
-Step 6 - Manager runs full test suite one final time, confirms green
+7. Reviewer: APPROVED after verifying all 14 endpoints work with both auth methods.
+
+Output: Comprehensive refactoring patch with dual-mode authentication,
+no breaking changes, and full test coverage.
 ```
 
 ## Best Practices
 
-- **Do**: Have the manager write an explicit task specification before the engineer starts coding. Ambiguous handoffs are the primary failure mode in multi-agent systems.
-- **Do**: Use the researcher for codebase exploration rather than having the engineer search while implementing. Separating exploration from implementation reduces context pollution.
-- **Do**: Let the review loop run until explicit approval. Premature termination (e.g., "good enough after 2 rounds") undermines the quality guarantee the reviewer provides.
-- **Do**: Route the engineer's failures back to the researcher. When implementation reveals that the initial analysis was wrong, more research is cheaper than more coding attempts.
-- **Avoid**: Having agents communicate directly with each other. All coordination must flow through the manager to maintain a single source of truth about task state.
-- **Avoid**: Prescribing a fixed number of iterations. The methodology defines phases, not step counts -- the manager decides dynamically when each phase is complete.
-- **Avoid**: Giving every agent the same broad prompt. Each role should have a focused system prompt that constrains it to its specialty (research, implementation, or review).
+**Do:**
+- Keep agent mandates narrow — the Researcher should ONLY investigate and report, never modify files. The Implementer should follow the task spec, not explore broadly.
+- Pass structured data between agents — file paths with line numbers, specific function names, concrete error messages. Vague summaries lose information across the handoff boundary.
+- Use the Reviewer's feedback verbatim when routing back to the Implementer. Don't summarize or reinterpret review comments — specificity prevents drift.
+- Set iteration caps (3 iterations is the sweet spot). Unbounded loops waste resources; too few iterations miss fixable issues.
+
+**Avoid:**
+- Don't skip the research phase for "simple" issues. The Researcher frequently uncovers context (related patterns, test gaps, hidden dependencies) that prevents implementation mistakes.
+- Don't let the Implementer agent also do research. Role separation is what makes this approach outperform single-agent baselines. Combining roles reintroduces the monolithic-agent failure mode.
+- Don't broadcast messages to all agents when only one needs the information. Use targeted `SendMessage` to the specific agent that needs to act.
+- Don't re-create agents between iterations. Resume existing agents so they retain context from prior rounds.
 
 ## Error Handling
 
-- **Researcher finds no clear root cause**: The manager should ask the researcher to broaden scope -- check logs, related modules, or upstream dependencies. If still unclear, the manager formulates a hypothesis-driven task spec with explicit "verify assumption X" steps for the engineer.
-- **Engineer's tests fail after implementation**: Route the test output back through the manager to decide whether this is a implementation bug (send back to engineer) or a misunderstanding of the problem (send back to researcher).
-- **Reviewer and engineer disagree**: The manager arbitrates by re-reading the task specification. If the spec is ambiguous, the manager rewrites it with more precision rather than letting agents argue.
-- **Context window pressure in long tasks**: Summarize completed phases into concise status updates before starting new phases. Each agent should receive only the context relevant to its current task, not the entire conversation history.
-- **Agent stuck in a loop**: If an engineer-reviewer cycle exceeds 4 iterations on the same issue, the manager should intervene -- either simplify the task spec, request fresh research, or decompose the problem into smaller sub-tasks.
+- **Researcher finds no relevant files**: Widen the search scope. If the codebase structure is unusual, have the Researcher start from entry points (main files, route registrations, config) and trace outward. If still blocked, ask the user for hints about file locations.
+- **Implementer's changes break existing tests**: This is a Reviewer catch. Route the specific failing test names and error output back through the Coordinator. The Researcher re-analyzes the test expectations, and the Implementer adjusts.
+- **Review loop hits iteration limit**: Present the current best patch with a clear summary: what works, what still fails, and the Reviewer's last feedback. Let the user decide whether to accept, manually fix, or provide additional guidance.
+- **Agent communication failure or timeout**: If a spawned agent fails, the Coordinator should retry once with the same prompt. If it fails again, fall back to single-agent mode for that role and note the degradation to the user.
+- **Conflicting research findings**: When the Researcher reports ambiguous or contradictory information (e.g., two different patterns used for the same concern), escalate to the Coordinator to ask the user which pattern to follow.
 
 ## Limitations
 
-- **Overhead on simple tasks**: For straightforward single-file fixes (typos, config changes, obvious one-liners), the multi-agent ceremony adds coordination cost without proportional quality gain. Use a single agent for trivial tasks.
-- **Model cost scales with agents**: Each agent consumes its own token budget. A 4-agent team uses roughly 3-4x the tokens of a single agent. The quality improvement justifies this for complex tasks but not for simple ones.
-- **Communication bottleneck**: Since all coordination flows through the manager, the manager's ability to synthesize and route information is the system's ceiling. A confused manager propagates confusion to all agents.
-- **No true parallelism in review**: The researcher and engineer cannot meaningfully work in parallel on the same issue because the engineer depends on the researcher's output. Parallelism is only useful when handling multiple independent sub-tasks.
-- **Repository-specific knowledge**: The researcher's effectiveness depends on the codebase being navigable (reasonable file names, some documentation, test coverage). Heavily obfuscated or undocumented codebases degrade research quality.
+- **Overhead for simple tasks**: A four-agent team is overkill for single-line fixes, typo corrections, or config changes. Use this approach only when the task genuinely benefits from separated research, implementation, and review phases. A good heuristic: if you can confidently identify the fix location and change without codebase exploration, skip the team.
+- **Context window pressure**: Each agent gets its own context, but inter-agent messages must carry enough information to be self-contained. Very large codebases with deeply entangled dependencies can exceed what structured messages can convey. In these cases, the Researcher should produce focused, prioritized findings rather than exhaustive reports.
+- **No shared memory between agents**: Agents communicate only through explicit messages. Implicit knowledge (e.g., "I noticed something odd in file X but it wasn't relevant to the current task") is lost. Encourage the Researcher to note peripheral findings in its report.
+- **Iteration limits vs. complex bugs**: Some bugs require more than 3 research-implement-review cycles. The hard cap prevents infinite loops but may terminate before convergence on genuinely difficult issues. The user can re-invoke with refined guidance.
+- **Model capability remains the floor**: Team structure amplifies model capabilities but cannot compensate for fundamental model limitations in code understanding or generation. If the underlying model cannot reason about the code, adding more agents won't help.
 
 ## Reference
 
-[Agyn: A Multi-Agent System for Team-Based Autonomous Software Engineering](https://arxiv.org/abs/2602.01465v2) (Benkovich & Valkov, 2026). Key sections: the manager-centric coordination architecture, the development methodology phases, and Table 1 comparing multi-agent vs. single-agent performance on SWE-bench 500 (72.2% vs. 65-71.8% for single-agent baselines).
+[Agyn: A Multi-Agent System for Team-Based Autonomous Software Engineering](https://arxiv.org/abs/2602.01465v2) — Benkovich & Valkov, 2026. Focus on Section 3 (System Architecture) for agent role definitions and communication protocols, and Section 4 (Development Methodology) for the iterative review loop that drives the 72.2% SWE-bench resolution rate.
