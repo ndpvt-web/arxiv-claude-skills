@@ -1,61 +1,151 @@
 ---
 name: "redsage-cybersecurity-generalist"
-description: >
-  Apply RedSage's domain-aware cybersecurity methodology to analyze vulnerabilities, generate threat intelligence,
-  review code for security flaws, craft penetration testing workflows, and map findings to frameworks like
-  MITRE ATT&CK, CAPEC, CWE, and OWASP Top 10. Trigger phrases: "analyze this CVE", "security review this code",
-  "map to MITRE ATT&CK", "generate a pentest plan", "explain this vulnerability", "threat model this system".
+description: |
+  Apply RedSage's agentic augmentation methodology to cybersecurity assistance: structured threat analysis, vulnerability assessment, tool-command generation, and multi-turn security workflows grounded in MITRE ATT&CK, OWASP, CWE/CAPEC, and penetration testing frameworks.
+  Trigger phrases:
+  - "Analyze this CVE and map it to CWE/CAPEC"
+  - "Help me with penetration testing methodology"
+  - "Explain this MITRE ATT&CK technique"
+  - "Generate security tool commands for this scenario"
+  - "Assess this vulnerability and estimate CVSS"
+  - "Walk me through incident response for this alert"
 ---
 
 # RedSage Cybersecurity Generalist
 
-This skill enables Claude to operate as a cybersecurity generalist assistant using the structured methodology from RedSage (ICLR 2026). It applies RedSage's three-pillar domain decomposition — **Knowledge** (frameworks and general concepts), **Skills** (offensive and defensive techniques), and **Tools** (CLI utilities and Kali tooling) — to deliver expert-level cybersecurity analysis. The core insight from RedSage is that grounding cybersecurity responses in seed knowledge from authoritative sources (MITRE ATT&CK, CWE, CAPEC, OWASP, HackTricks, NVD) and structuring multi-turn workflows that simulate expert reasoning produces significantly more accurate and actionable security guidance than generic LLM responses.
+This skill enables Claude to act as a domain-aware cybersecurity assistant using the structured methodology from RedSage (ICLR 2026). Rather than providing surface-level security advice, it applies RedSage's Planner-Augmenter workflow: first decomposing a cybersecurity problem into its constituent skill domains (vulnerability analysis, tool-command generation, threat intelligence, offensive techniques), then constructing grounded, multi-step responses that mirror expert decision-making. This approach produces responses that are technically precise, framework-aligned (MITRE ATT&CK, OWASP, CWE/CAPEC, NIST), and operationally actionable.
 
 ## When to Use
 
-- When the user asks to **review code for security vulnerabilities** (SQL injection, XSS, SSRF, command injection, deserialization flaws, etc.)
-- When the user asks to **map a CVE or vulnerability to CWE, CAPEC, or MITRE ATT&CK** techniques
-- When the user asks to **generate a penetration testing plan** or attack surface analysis for a system
-- When the user asks to **explain a cybersecurity concept**, attack technique, or defense mechanism
-- When the user asks to **write or review security tool commands** (nmap, Burp Suite, sqlmap, Metasploit, etc.)
-- When the user asks to **threat model** an application, API, or infrastructure component
-- When the user asks to **analyze malware behavior**, suspicious payloads, or encoded shellcode
-- When the user asks to **assess CVSS scores** or reason about vulnerability severity and exploitability
-- When the user asks to **create security-focused test cases** or fuzzing strategies for code
+- When the user asks to analyze a CVE, map it to CWE identifiers, or predict CVSS severity
+- When building penetration testing workflows that require specific tool commands (nmap, metasploit, burp suite, gobuster, etc.)
+- When the user needs to understand or operationalize a MITRE ATT&CK technique or tactic
+- When performing code review for security vulnerabilities (OWASP Top 10, injection flaws, auth bypass)
+- When the user asks for incident response procedures for a specific alert or IOC
+- When generating or reviewing Content Security Policy, firewall rules, or hardening configurations
+- When the user needs threat actor attribution analysis or CTI report synthesis
+- When writing CTF challenge solutions that require structured offensive methodology
 
-## Key Technique: Domain-Aware Agentic Decomposition
+## Key Technique: Agentic Augmentation with Planner-Augmenter Decomposition
 
-RedSage's methodology rests on two insights. First, cybersecurity expertise decomposes into three distinct dimensions that should be addressed separately:
+RedSage's core innovation is a two-agent pipeline that transforms raw cybersecurity knowledge into structured, expert-grade multi-turn workflows. The **Planner** agent analyzes the security context and derives candidate skill sets (e.g., "this requires vulnerability analysis + tool-command generation + CWE mapping") along with augmentation strategies that specify the depth, format, and transformation approach. The **Augmenter** agent then instantiates each plan into a grounded, role-based response enforcing five quality dimensions: relevance to the specific security context, diversity of perspectives (attacker and defender), creativity in technique chaining, technical detail preservation, and proper formatting with actionable commands.
 
-1. **Knowledge dimension** — factual understanding of frameworks (MITRE ATT&CK tactics/techniques, CWE weakness taxonomy, CAPEC attack patterns, OWASP Top 10) and general security concepts (cryptography, authentication, network protocols, access control).
-2. **Skills dimension** — procedural expertise in offensive techniques (exploitation, privilege escalation, lateral movement, payload crafting) and defensive operations (detection engineering, incident response, hardening).
-3. **Tools dimension** — practical command-line proficiency with security utilities (nmap, gobuster, sqlmap, Metasploit, Wireshark, Burp Suite, John the Ripper) and Linux/Kali administration.
+This decomposition matters because cybersecurity problems are inherently multi-domain. A single vulnerability assessment touches CVE databases, CWE taxonomies, CVSS scoring, MITRE ATT&CK technique mapping, and remediation tooling. By explicitly planning which skill domains to activate before generating the response, the method avoids the shallow "list of tips" failure mode and instead produces responses that chain knowledge across frameworks the way a senior security analyst would.
 
-Second, the **agentic augmentation pipeline** shows that the highest-quality cybersecurity analysis follows a Planner-then-Executor pattern: first analyze the problem to identify which skill sets and frameworks apply, then ground the response in authoritative seed knowledge to produce realistic, role-based, multi-step workflows. This two-phase approach — plan the analysis strategy, then execute it with grounded reasoning — is what separates expert security analysis from surface-level responses.
+The training data behind this method spans three pillars: **Knowledge** (MITRE ATT&CK, CAPEC, CWE, OWASP, NIST frameworks), **Skills** (HackTricks, penetration testing writeups, CTF notes, payload construction), and **Tools** (Kali Linux documentation, Linux man pages, CLI cheat-sheets). When applying this skill, Claude should draw on all three pillars for each response.
 
 ## Step-by-Step Workflow
 
-1. **Classify the request across RedSage's three dimensions.** Determine whether the task primarily requires Knowledge (framework mapping, conceptual explanation), Skills (attack/defense procedures), or Tools (command construction), or a combination. This classification shapes the response structure.
+1. **Classify the security domain.** Determine which cybersecurity pillars apply: Knowledge (frameworks, taxonomies), Skills (offensive/defensive techniques), or Tools (CLI commands, platform-specific utilities). Most real queries touch 2-3 pillars.
 
-2. **Identify the relevant authoritative frameworks.** For vulnerability analysis, anchor to CWE IDs and CVSS vectors. For attack analysis, anchor to MITRE ATT&CK tactics and techniques. For web security, anchor to OWASP Top 10 categories. For attack patterns, anchor to CAPEC IDs. Always cite specific identifiers.
+2. **Identify the relevant frameworks.** Map the query to specific standards: MITRE ATT&CK technique IDs (e.g., T1059.001), CWE numbers (e.g., CWE-79), CAPEC attack patterns, OWASP categories, or CVSS v3.1 vectors. Always cite specific identifiers, never generic categories.
 
-3. **Apply the Planner phase: decompose the problem.** Before generating the answer, explicitly outline what skill sets apply and what augmentation strategy to use. For code review, this means identifying the attack surface (input sources, trust boundaries, data flows). For threat modeling, this means enumerating entry points, assets, and threat actors.
+3. **Plan the skill decomposition.** Before generating the response, explicitly determine which sub-skills are needed. For example, a CVE analysis requires: (a) vulnerability description parsing, (b) CWE root-cause mapping, (c) CVSS vector estimation, (d) ATT&CK technique correlation, (e) remediation command generation.
 
-4. **Execute the analysis grounded in seed knowledge.** Produce the actual security analysis referencing specific CWE weaknesses, ATT&CK technique IDs, or tool flags. Do not generate vague warnings — cite the specific vulnerability class, its root cause, and the exploitation mechanism.
+4. **Ground every claim in a specific source.** Reference specific framework entries (ATT&CK technique pages, CWE definitions, tool documentation) rather than general security wisdom. If the exact CVE/CWE/technique is known, cite it. If inferring, state the inference explicitly.
 
-5. **Construct actionable remediation or next steps.** For vulnerabilities, provide concrete code fixes with before/after examples. For penetration testing, provide exact commands with flag explanations. For threat models, provide prioritized risk mitigations.
+5. **Generate tool commands with full syntax.** When recommending security tools, provide complete, copy-paste-ready commands with flags explained. Include the specific context (target, port, protocol) from the user's scenario. Never give a bare tool name without a concrete invocation.
 
-6. **Cross-reference across dimensions.** Link the Knowledge layer to the Skills layer: if a CWE is identified, explain the attack technique that exploits it. Link Skills to Tools: if an attack is described, show the tool commands to test for it. This cross-referencing is what produces genuinely useful output.
+6. **Chain techniques in attack/defense order.** Structure multi-step procedures in operational sequence: reconnaissance before exploitation, exploitation before persistence, detection before response. Mirror real-world workflow ordering.
 
-7. **Validate completeness using the five-category checklist.** Ensure the response covers: (a) Knowledge-General concepts, (b) Knowledge-Frameworks mappings, (c) Skill-Offensive or Skill-Defensive procedures as appropriate, (d) Tools-CLI commands if applicable, (e) Tools-Kali specifics if penetration testing is involved.
+7. **Provide both attacker and defender perspectives.** For each technique or vulnerability discussed, include how it is exploited AND how it is detected/mitigated. This dual-lens approach reflects the RedSage training methodology of covering offensive and defensive workflows.
 
-8. **Format with severity and confidence indicators.** Label findings with severity (Critical/High/Medium/Low/Informational), map to CVSS base metrics where applicable, and flag any assumptions or areas requiring further investigation.
+8. **Validate with structured output.** Present findings in structured formats: CVSS vector strings, ATT&CK Navigator layers, CWE taxonomy trees, or tabular tool comparison matrices. Structured output is more actionable than prose.
+
+9. **Flag authorization boundaries.** For any offensive technique, explicitly state the authorization requirements. Distinguish between techniques appropriate for authorized pentesting, CTF competitions, and security research versus those requiring additional safeguards.
 
 ## Concrete Examples
 
-**Example 1: Security Code Review**
+**Example 1: CVE Analysis with Framework Mapping**
 
-User: "Review this Python Flask endpoint for security vulnerabilities"
+User: "Analyze CVE-2024-3094 (the xz backdoor) and map it to relevant security frameworks."
+
+Approach:
+1. Classify: Knowledge (supply chain attack taxonomy) + Skills (backdoor analysis) + Tools (detection commands)
+2. Identify frameworks: CWE-506 (Embedded Malicious Code), CAPEC-443 (Malicious Logic Inserted Into Product Software), ATT&CK T1195.002 (Supply Chain Compromise: Compromise Software Supply Chain)
+3. Decompose into sub-analyses: vulnerability mechanics, supply chain vector, detection methodology, remediation
+
+Output:
+```
+## CVE-2024-3094: XZ Utils Backdoor Analysis
+
+### Vulnerability Summary
+Malicious code injected into xz/liblzma versions 5.6.0-5.6.1 via compromised
+build process, creating an authentication bypass in OpenSSH via systemd's
+libsystemd dependency on liblzma.
+
+### Framework Mapping
+| Framework    | ID            | Description                                    |
+|-------------|---------------|------------------------------------------------|
+| CWE         | CWE-506       | Embedded Malicious Code                        |
+| CAPEC       | CAPEC-443     | Malicious Logic Inserted Into Product Software |
+| ATT&CK      | T1195.002     | Supply Chain Compromise: Software              |
+| ATT&CK      | T1556.004     | Modify Authentication Process                  |
+| CVSS v3.1   | 10.0 CRITICAL | AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H          |
+
+### Detection Commands
+# Check installed xz version
+xz --version
+# Expected safe output: xz (XZ Utils) 5.4.x or 5.6.2+
+
+# Verify liblzma is not backdoored (check for IFUNC resolver)
+hexdump -C /usr/lib/liblzma.so.5 | grep -c "f3 0f 1e fa"
+
+# Scan for affected packages on Debian/Ubuntu
+dpkg -l | grep -E "xz-utils|liblzma" | awk '{print $2, $3}'
+
+### Remediation
+Downgrade to xz 5.4.x or upgrade to 5.6.2+. Audit build pipelines
+for unsigned or unreviewed commits from external contributors.
+```
+
+**Example 2: Penetration Testing Workflow with Tool Commands**
+
+User: "I'm doing an authorized pentest on a web application at 10.10.10.50. Help me with the reconnaissance phase."
+
+Approach:
+1. Classify: Tools (recon utilities) + Skills (enumeration methodology)
+2. Plan: port scanning -> service enumeration -> web directory discovery -> technology fingerprinting
+3. Generate commands in operational sequence with flag explanations
+
+Output:
+```
+## Authorized Web Application Reconnaissance - 10.10.10.50
+
+### Phase 1: Port Scanning
+# Fast TCP SYN scan of all ports, service version detection, default scripts
+sudo nmap -sS -sV -sC -p- --min-rate=1000 -oN recon/nmap_full.txt 10.10.10.50
+
+# UDP scan of top 100 ports (often reveals SNMP, DNS, TFTP)
+sudo nmap -sU --top-ports 100 -oN recon/nmap_udp.txt 10.10.10.50
+
+### Phase 2: Web Enumeration (after confirming HTTP/HTTPS ports)
+# Directory brute-force with common wordlist
+gobuster dir -u http://10.10.10.50 -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \
+  -x php,html,txt,bak -t 50 -o recon/gobuster.txt
+
+# Technology fingerprinting
+whatweb http://10.10.10.50 --aggression=3 --log-verbose=recon/whatweb.txt
+
+# Check for known CMS vulnerabilities
+nikto -h http://10.10.10.50 -o recon/nikto.txt -Format txt
+
+### Phase 3: SSL/TLS Assessment (if port 443 open)
+# Check certificate details and cipher suites
+sslscan 10.10.10.50:443
+
+# Test for known TLS vulnerabilities
+testssl.sh --vulnerable 10.10.10.50:443
+
+### Next Steps
+Review nmap output for non-standard services. Check gobuster results
+for admin panels, backup files (.bak, .old), and API endpoints.
+Cross-reference whatweb CMS detection with known CVEs.
+```
+
+**Example 3: Secure Code Review with CWE Mapping**
+
+User: "Review this Python Flask endpoint for security issues."
 ```python
 @app.route('/search')
 def search():
@@ -65,128 +155,80 @@ def search():
 ```
 
 Approach:
-1. Classify: Knowledge (CWE mapping) + Skills (exploitation) + Tools (testing)
-2. Identify frameworks: CWE-89 (SQL Injection), CWE-79 (XSS via template injection)
-3. Plan: Two distinct vulnerabilities — analyze input flow, trust boundary violations
+1. Classify: Knowledge (OWASP, CWE) + Skills (code audit)
+2. Identify each vulnerability, map to CWE, rate severity, provide fix
 
 Output:
 ```
-## Findings
+## Security Audit: 3 Critical Vulnerabilities Found
 
-### [CRITICAL] SQL Injection — CWE-89
-- **Line**: `db.execute(f"SELECT * FROM products WHERE name LIKE '%{query}%'")`
-- **Root cause**: User input from `request.args.get('q')` interpolated directly into SQL
-- **ATT&CK**: T1190 (Exploit Public-Facing Application)
-- **CAPEC**: CAPEC-66 (SQL Injection)
-- **Exploit**: `GET /search?q=' OR 1=1--` dumps all products; `' UNION SELECT username,password FROM users--` exfiltrates credentials
-- **Fix**: Use parameterized queries
-  ```python
-  results = db.execute("SELECT * FROM products WHERE name LIKE ?", (f"%{query}%",))
-  ```
-- **Test command**: `sqlmap -u "http://target/search?q=test" --dbs`
+### 1. SQL Injection (CRITICAL)
+- CWE: CWE-89 (Improper Neutralization of Special Elements in SQL Command)
+- OWASP: A03:2021 - Injection
+- ATT&CK: T1190 (Exploit Public-Facing Application)
+- Line: db.execute(f"SELECT * FROM products WHERE name LIKE '%{query}%'")
+- Impact: Full database read/write/delete, potential RCE via stacked queries
 
-### [CRITICAL] Server-Side Template Injection (SSTI) — CWE-1336
-- **Line**: `render_template_string(f"<h1>Results for {query}</h1>")`
-- **Root cause**: User input passed into Jinja2 template compilation
-- **Exploit**: `GET /search?q={{config.items()}}` leaks Flask config including SECRET_KEY;
-  `{{''.__class__.__mro__[1].__subclasses__()}}` enables RCE
-- **Fix**: Use `render_template` with a static template file, pass `query` as a context variable
-  ```python
-  return render_template("search.html", query=escape(query), results=results)
-  ```
-```
+Fix: Use parameterized queries.
+  results = db.execute(
+      "SELECT * FROM products WHERE name LIKE :q",
+      {"q": f"%{query}%"}
+  )
 
-**Example 2: MITRE ATT&CK Mapping**
+### 2. Reflected XSS via Server-Side Template Injection (CRITICAL)
+- CWE: CWE-79 (XSS) + CWE-1336 (Server-Side Template Injection)
+- OWASP: A03:2021 - Injection
+- Line: render_template_string(f"<h1>Results for {query}</h1>")
+- Impact: render_template_string with user input enables both XSS and
+  full SSTI (Jinja2 RCE via {{ config.items() }} or worse)
 
-User: "Map this incident to MITRE ATT&CK: attacker sent a phishing email with a macro-enabled doc, gained a reverse shell, dumped credentials with Mimikatz, moved laterally via PsExec, and exfiltrated data over DNS"
+Fix: Use static templates with escaped variables.
+  # templates/search.html: <h1>Results for {{ query }}</h1>
+  return render_template("search.html", query=query)
 
-Approach:
-1. Classify: Knowledge-Frameworks (ATT&CK mapping)
-2. Decompose each phase into tactics and techniques
-3. Cross-reference with tools used
+### 3. Missing Input Validation (MEDIUM)
+- CWE: CWE-20 (Improper Input Validation)
+- Line: query = request.args.get('q')  # No None check, no length limit
+- Impact: Potential DoS via extremely long query strings
 
-Output:
-```
-## ATT&CK Kill Chain Mapping
-
-| Phase | Tactic | Technique ID | Technique Name | Tool/Detail |
-|-------|--------|-------------|----------------|-------------|
-| 1 | Initial Access | T1566.001 | Phishing: Spearphishing Attachment | Macro-enabled .docm |
-| 2 | Execution | T1204.002 | User Execution: Malicious File | Victim opens macro |
-| 3 | Command & Control | T1059.001 | PowerShell | Reverse shell callback |
-| 4 | Credential Access | T1003.001 | OS Credential Dumping: LSASS Memory | Mimikatz sekurlsa::logonpasswords |
-| 5 | Lateral Movement | T1570 | Lateral Tool Transfer | PsExec with stolen creds |
-| 5 | Lateral Movement | T1021.002 | SMB/Windows Admin Shares | PsExec over SMB |
-| 6 | Exfiltration | T1048.003 | Exfiltration Over Alternative Protocol: DNS | DNS tunneling (e.g., dnscat2, iodine) |
-
-## Detection Opportunities
-- **T1566.001**: Email gateway scanning for macro-enabled attachments, sandbox detonation
-- **T1003.001**: Monitor LSASS access (Sysmon Event ID 10), enable Credential Guard
-- **T1048.003**: DNS query length anomaly detection, monitor for high-entropy subdomain queries
-```
-
-**Example 3: Penetration Testing Plan**
-
-User: "Generate a pentest plan for an externally-facing web application running on nginx with a REST API backend"
-
-Approach:
-1. Classify: Skills (offensive methodology) + Tools (specific commands)
-2. Structure using standard pentest phases grounded in OWASP Testing Guide
-3. Provide concrete tool commands for each phase
-
-Output:
-```
-## External Web Application Penetration Test Plan
-
-### Phase 1: Reconnaissance
-- Subdomain enumeration: `subfinder -d target.com -silent | httpx -mc 200`
-- Technology fingerprinting: `whatweb https://target.com`
-- Directory brute-force: `feroxbuster -u https://target.com -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt`
-- API endpoint discovery: `ffuf -u https://target.com/api/FUZZ -w /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt -mc 200,301,403`
-
-### Phase 2: Vulnerability Scanning
-- Nginx version check for known CVEs (CVE-2021-23017 DNS resolver, CVE-2022-41741 mp4 module)
-- TLS configuration: `testssl.sh https://target.com`
-- CORS misconfiguration: Test `Origin: https://evil.com` header reflection
-- API security: Check for BOLA/IDOR (OWASP API1), broken authentication (API2), excessive data exposure (API3)
-
-### Phase 3: Manual Testing (OWASP Top 10)
-- **A01 Broken Access Control**: Test horizontal/vertical privilege escalation on API endpoints by swapping user IDs and JWT claims
-- **A03 Injection**: Test all input fields for SQLi, NoSQLi, command injection, SSTI
-- **A07 Auth Failures**: Test for JWT algorithm confusion (alg:none), weak secrets (`hashcat -a 0 -m 16500 jwt.txt rockyou.txt`)
-- **A08 Software Integrity**: Check for deserialization endpoints, CSP headers, SRI tags
-
-### Phase 4: Post-Exploitation (if authorized)
-- Pivot from web shell to internal network
-- Credential harvesting from config files, environment variables, database connections
-- Document all findings with proof-of-concept payloads and reproduction steps
+Fix: Validate and sanitize input.
+  query = request.args.get('q', '').strip()[:200]
+  if not query:
+      abort(400, "Search query required")
 ```
 
 ## Best Practices
 
-- **Do** always cite specific identifiers (CWE-XXX, T1XXX.XXX, CAPEC-XXX) rather than vague vulnerability descriptions. Specificity enables actionable remediation and proper tracking.
-- **Do** cross-reference across Knowledge, Skills, and Tools dimensions — a vulnerability finding is incomplete without the exploitation technique AND the detection/remediation strategy.
-- **Do** provide concrete code fixes with before/after comparisons, not just descriptions of what should change.
-- **Do** scope findings to the authorization context — clearly distinguish between authorized testing guidance and general educational explanations.
-- **Avoid** generating exploit code without clear authorization context (CTF, pentest engagement, security research, or defensive testing). Frame offensive techniques as detection and defense opportunities.
-- **Avoid** surface-level analysis that names a vulnerability class without explaining the specific root cause, data flow, and exploitation path in the given code.
-- **Avoid** recommending tools without specifying the exact flags, arguments, and expected output — a command like "use nmap" is not useful without the scan type and target specification.
+**Do:**
+- Always cite specific framework identifiers (CWE-XXX, T1XXX.XXX, CAPEC-XXX) rather than vague category names. Precision enables actionable lookup and correlation.
+- Provide complete, runnable tool commands with output file paths and explain non-obvious flags. Security professionals copy-paste commands in time-critical situations.
+- Decompose complex security questions into the Knowledge/Skills/Tools triad before responding. This prevents shallow answers that miss operational context.
+- Include detection signatures alongside exploitation techniques. Every offensive step should have a corresponding defensive indicator.
+
+**Avoid:**
+- Giving generic security advice ("keep software updated," "use strong passwords") without specific, contextual actions tied to the user's scenario.
+- Recommending tools without specifying exact flags, wordlists, and output formats. A bare `nmap 10.10.10.50` is not useful guidance.
+- Conflating vulnerability categories. SQL injection (CWE-89) and command injection (CWE-78) have different root causes, detection methods, and fixes. Be precise.
+- Skipping the authorization context for offensive techniques. Every pentesting recommendation must acknowledge the authorized scope.
 
 ## Error Handling
 
-- **Incomplete code context**: If the user provides a code snippet without surrounding context (imports, framework, database driver), state the assumptions explicitly (e.g., "Assuming SQLAlchemy with raw execute — if using ORM query builder, this may be safe") and ask for clarification.
-- **Ambiguous scope**: If it is unclear whether the user wants offensive (how to exploit) vs. defensive (how to fix) guidance, default to defensive and note what offensive analysis would look like.
-- **Unknown CVE or recent vulnerability**: If a CVE ID is not in training data, say so and suggest checking NVD (`https://nvd.nist.gov/vuln/detail/CVE-XXXX-XXXXX`) or the vendor advisory. Do not fabricate CVE details.
-- **Framework version uncertainty**: Security advice often depends on framework version (e.g., Django auto-escapes templates, older versions of jQuery are XSS-prone). Flag version-dependent findings and state which versions are affected.
+- **Unknown CVE or outdated data:** If Claude's training data predates a CVE, state this explicitly: "My knowledge cutoff may not include CVE-YYYY-XXXXX. Verify details at nvd.nist.gov." Provide analysis of the vulnerability class (CWE) even when the specific CVE details are uncertain.
+- **Ambiguous scope:** If the user's authorization context is unclear (pentest vs. production vs. CTF), ask before providing exploitation commands. Default to the defensive/analytical perspective.
+- **Tool version mismatches:** Security tools change flags between versions. Note the assumed tool version (e.g., "nmap 7.94+") and suggest `--help` verification when commands include newer features.
+- **Framework mapping conflicts:** Some vulnerabilities map to multiple CWEs or ATT&CK techniques. List all applicable mappings ranked by specificity rather than picking one.
+- **Incomplete reconnaissance:** If the user asks to jump to exploitation without recon results, recommend completing enumeration first. Premature exploitation wastes time and may trigger alerts.
 
 ## Limitations
 
-- This skill applies RedSage's methodology as a structured reasoning approach — it does not run the RedSage model itself. Claude's cybersecurity knowledge has a training cutoff and may not cover CVEs disclosed after that date.
-- The skill is strongest for web application security, network penetration testing, and framework mapping (MITRE ATT&CK, CWE, OWASP). It is less suited for hardware security, SCADA/ICS-specific analysis, or cryptographic protocol verification, which require specialized domain tools.
-- Threat modeling for large distributed systems requires iterative sessions — a single-pass analysis will miss interaction effects between components. Use multiple rounds with the Planner-Executor pattern.
-- Automated tool commands are provided for educational and authorized testing contexts only. Running them against systems without explicit authorization is illegal.
+- Claude's training data has a knowledge cutoff and will not cover CVEs, ATT&CK updates, or tool releases published after that date. Always cross-reference with live databases (NVD, MITRE ATT&CK website) for current intelligence.
+- This skill applies RedSage's methodology (structured decomposition, framework grounding, multi-turn expert workflow simulation) but does not run the actual RedSage 8B model. Claude's general training may differ from RedSage's domain-specific fine-tuning on edge cases in obscure security tooling.
+- Hands-on exploitation tasks (running actual exploits, interacting with live targets) require execution environments that Claude cannot provide. The skill generates the commands and methodology; execution is the user's responsibility within their authorized scope.
+- Malware reverse engineering at the binary level (disassembly analysis, dynamic sandbox results) requires specialized tools (Ghidra, IDA, Cuckoo) that Claude cannot execute. The skill can guide methodology and interpret shared output but cannot perform binary analysis directly.
+- CVSS scoring provided by this skill is an estimate based on vulnerability description analysis. Official scores should come from NVD or the vendor's security advisory.
 
 ## Reference
 
-**Paper**: [RedSage: A Cybersecurity Generalist LLM](https://arxiv.org/abs/2601.22159v1) — Suryanto et al., ICLR 2026.
-Look for: Section 3.2 (Agentic Augmentation Pipeline) for the Planner-Augmenter workflow pattern, Table 3 for the five-category taxonomy, and Section 4 (RedSage-Bench) for how to structure rigorous cybersecurity evaluation across knowledge, skills, and tools dimensions. Project page: https://risys-lab.github.io/RedSage/
+**Paper:** [RedSage: A Cybersecurity Generalist LLM](https://arxiv.org/abs/2601.22159v1) (ICLR 2026)
+**Key insight:** The Planner-Augmenter agentic augmentation pipeline (Section 3.2) that decomposes cybersecurity problems into Knowledge/Skills/Tools pillars and generates grounded multi-turn expert workflows, achieving +5.59 point improvement over baseline models on cybersecurity benchmarks while also improving general reasoning by +5.05 points.
+**Resources:** Models, datasets, and code at [github.com/RISys-Lab/RedSage](https://github.com/RISys-Lab/RedSage)
