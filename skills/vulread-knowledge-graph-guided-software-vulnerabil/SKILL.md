@@ -1,205 +1,212 @@
 ---
 name: "vulread-knowledge-graph-guided-software-vulnerabil"
-description: "Knowledge-graph-guided vulnerability reasoning and CWE-level detection for source code. Analyzes functions for security flaws using structured CWE taxonomy reasoning rather than binary vulnerable/not-vulnerable labels. Trigger phrases: 'analyze this code for vulnerabilities', 'what CWE does this bug fall under', 'explain why this function is vulnerable', 'find security flaws with CWE classification', 'vulnerability reasoning for this code', 'CWE-level security audit'"
+description: "CWE-guided vulnerability reasoning and detection using knowledge-graph-structured analysis. Analyzes source code for security vulnerabilities with structured CWE-level explanations grounded in a security knowledge graph. Triggers: 'analyze this code for vulnerabilities', 'find CWE issues in this function', 'security audit with CWE classification', 'explain the vulnerability in this code', 'what CWE does this bug fall under', 'check this C function for memory safety issues'"
 ---
 
-This skill enables Claude to perform **CWE-taxonomy-guided vulnerability reasoning** on source code, applying the VulReaD methodology from arXiv:2602.10787. Instead of simply flagging code as "vulnerable" or "safe," Claude extracts security-relevant entities from functions (API calls, memory operations, file handles, user-controlled inputs), maps them through a mental model of CWE abstraction classes, and produces structured reasoning that ties specific code constructs to specific CWE categories with root-cause explanations. This approach yields dramatically more useful security analysis than binary classification alone.
+# VulReaD: Knowledge-Graph-Guided Software Vulnerability Reasoning and Detection
+
+This skill enables Claude to perform structured vulnerability analysis on source code by following the VulReaD methodology: instead of making binary vulnerable/not-vulnerable judgments, Claude extracts security-relevant entities from code (API calls, variable names, file paths, memory operations), maps them to vulnerability abstraction classes (e.g., Memory Management, Input Validation, Access Control), and traces those classes to specific CWE identifiers. This produces explanations that are semantically grounded in the CWE taxonomy rather than surface-level pattern matching.
 
 ## When to Use
 
-- When the user asks to **review a function or file for security vulnerabilities** and wants to know *which* CWE categories apply, not just yes/no
-- When the user provides a code snippet and asks **"what kind of vulnerability is this?"** or **"what CWE is this?"**
-- When performing a **security audit** and the user needs structured, taxonomy-aligned explanations for each finding
-- When the user wants to understand **why** code is vulnerable, with reasoning grounded in the specific weakness mechanism (buffer overflow vs. use-after-free vs. injection, etc.)
-- When comparing two code versions (patched vs. unpatched) and the user wants **contrastive reasoning** about what changed and why
-- When triaging vulnerability reports and needing to **validate or correct CWE attributions** (e.g., a scanner says CWE-119 but the real issue is CWE-416)
+- When the user asks to audit a function or file for security vulnerabilities and wants CWE-level classification, not just "this looks unsafe"
+- When reviewing C/C++ code for memory safety issues (buffer overflows, use-after-free, memory leaks) and needing precise CWE attribution
+- When the user wants to understand *why* code is vulnerable with a structured explanation linking code entities to specific weakness categories
+- When triaging vulnerability reports and needing to verify whether a reported CWE matches the actual code behavior
+- When analyzing code diffs or patches to confirm whether a fix actually addresses the claimed CWE
+- When building or reviewing static analysis rules and needing CWE-consistent reasoning to validate detection logic
 
 ## Key Technique
 
-VulReaD's core insight is that vulnerability detection improves substantially when reasoning is **anchored to a structured security knowledge graph** rather than performed in open-ended fashion. The method defines 13 vulnerability abstraction classes — File and Path Handling, Input Validation, Access Control, Memory Management, Cryptographic Operations, Resource Lifecycle, Numeric Processing, Concurrency and Synchronization, Error Handling, Information Disclosure, Configuration and Environment, Code Injection Surfaces, and Authentication and Session Management — that serve as intermediate semantic categories between raw code and specific CWE identifiers. Each CWE maps to one or more abstraction classes via keyword matching and embedding similarity against CWE descriptions.
+VulReaD's core insight is that LLMs produce fluent but often semantically misaligned vulnerability explanations. A model might flag code as vulnerable to CWE-763 (Use-After-Free) when the actual issue is CWE-401 (Memory Leak) -- the explanation reads convincingly but maps to the wrong weakness. VulReaD fixes this by grounding all reasoning in a security knowledge graph that enforces entity-to-class-to-CWE alignment.
 
-The practical workflow is: (1) extract security-relevant **entities** from code — function names, API calls, variable names, pointer operations, system calls, file descriptors; (2) associate each entity with one or more **abstraction classes** based on what security domain it belongs to; (3) use the abstraction class to retrieve **candidate CWE categories** from the knowledge graph; (4) generate **structured reasoning** that explains whether and how the code's entities interact to produce a vulnerability matching a specific CWE. This structured pipeline prevents the common failure mode where an LLM correctly detects a vulnerability exists but misattributes it to the wrong CWE (e.g., calling a memory leak CWE-401 a use-after-free CWE-416).
+The knowledge graph organizes vulnerabilities through 13 abstraction classes: File and Path Handling, Input Validation, Access Control, Memory Management, Cryptographic Operations, Error Handling, Resource Management, Concurrency, Numeric Operations, Code Injection, Information Disclosure, Configuration Management, and Authentication/Authorization. Each class captures a family of security flaws and maps to specific CWE identifiers. Code entities (function calls like `malloc`, `strcpy`, `fopen`; parameters; variable names) are linked to these classes, and the classes are linked to CWEs via both keyword matching and embedding-based similarity.
 
-The contrastive dimension is equally important: for every piece of valid reasoning ("this function is vulnerable to CWE-120 because `strcpy` copies user input into a fixed-size buffer without bounds checking"), VulReaD also considers what **flawed reasoning** looks like ("this function is safe because `strcpy` is a standard library function") — and explicitly trains to prefer the grounded explanation over the superficial one. When applying this skill, Claude should similarly construct both the vulnerability argument and the counter-argument, then evaluate which is better supported by the code.
+The contrastive reasoning approach is what makes VulReaD's explanations reliable. For each code sample, the method generates two reasonings: a *valid* reasoning conditioned on the true label (extracting entities, mapping to the correct abstraction class, citing the right CWE) and a *flawed* reasoning produced by conditioning on the wrong label (which generates plausible-sounding but structurally incorrect explanations). Training the model to prefer valid over flawed reasoning -- using Odds Ratio Preference Optimization -- teaches it to distinguish genuinely grounded explanations from superficially convincing ones.
 
 ## Step-by-Step Workflow
 
-1. **Extract the target function(s).** Read the complete function body including its signature, local variables, called APIs, and any relevant type definitions or macros. If the user provides a file, identify individual function boundaries.
+1. **Extract security-relevant entities from the code.** Identify all function calls, API invocations, library references, variable names, file path operations, memory allocations/deallocations, and input-handling operations. List each entity explicitly.
 
-2. **Identify security-relevant entities.** Scan the function for: memory allocation/deallocation calls (`malloc`, `free`, `new`, `delete`, `realloc`), string/buffer operations (`strcpy`, `strncpy`, `memcpy`, `sprintf`), file/path operations (`fopen`, `open`, `unlink`, file descriptor usage), input sources (`recv`, `read`, `scanf`, `argv`, `getenv`, HTTP parameters), authentication/session calls, cryptographic operations, numeric casts/arithmetic, and concurrency primitives (`pthread_mutex`, atomics).
+2. **Map each entity to one or more of the 13 vulnerability abstraction classes.** Use these categories:
+   - Memory Management: `malloc`, `free`, `realloc`, `new`, `delete`, pointer arithmetic
+   - Input Validation: `scanf`, `gets`, `argv`, `getenv`, user-controlled buffers
+   - File and Path Handling: `fopen`, `open`, `stat`, path concatenation, symlink operations
+   - Access Control: permission checks, `setuid`, capability operations
+   - Error Handling: unchecked return values, missing null checks, exception handling gaps
+   - Resource Management: file descriptors, sockets, locks not released
+   - Concurrency: shared state without synchronization, race conditions, TOCTOU patterns
+   - Numeric Operations: integer overflow, truncation, signed/unsigned mismatches
+   - Code Injection: `system()`, `exec()`, SQL string building, `eval()`
+   - Cryptographic Operations: weak algorithms, hardcoded keys, insufficient randomness
+   - Information Disclosure: logging sensitive data, error messages exposing internals
+   - Configuration Management: hardcoded credentials, insecure defaults
+   - Authentication/Authorization: missing auth checks, broken session management
 
-3. **Map entities to abstraction classes.** Assign each entity to one or more of the 13 abstraction classes:
-   - `malloc`/`free`/pointer arithmetic → **Memory Management**
-   - `strcpy`/`sprintf`/`gets` → **Input Validation** + **Memory Management**
-   - `fopen`/path concatenation → **File and Path Handling**
-   - `recv`/`argv`/`getenv` → **Input Validation** + **Code Injection Surfaces**
-   - SQL string building → **Code Injection Surfaces**
-   - `rand()`/weak hash → **Cryptographic Operations**
-   - Integer overflow-prone arithmetic → **Numeric Processing**
-   - Missing `fclose`/`free` on error paths → **Resource Lifecycle**
-   - Missing permission checks → **Access Control**
+3. **Trace each abstraction class to candidate CWE identifiers.** For Memory Management entities, consider CWE-119 (Buffer Overflow), CWE-125 (Out-of-bounds Read), CWE-416 (Use-After-Free), CWE-401 (Memory Leak), CWE-415 (Double Free), CWE-476 (NULL Pointer Dereference). For Input Validation, consider CWE-20 (Improper Input Validation), CWE-787 (Out-of-bounds Write), CWE-120 (Buffer Copy without Size Check). Match based on the specific entity behavior, not just its category.
 
-4. **Retrieve candidate CWEs for each abstraction class.** Use the mapping to narrow the search space. For example, Memory Management entities point to CWE-119 (Buffer Overflow), CWE-120 (Classic Buffer Overflow), CWE-125 (Out-of-bounds Read), CWE-416 (Use After Free), CWE-401 (Memory Leak), CWE-415 (Double Free), CWE-476 (NULL Pointer Dereference). Input Validation points to CWE-20, CWE-78, CWE-79, CWE-89, CWE-134, etc.
+4. **Analyze data flow and control flow around each entity.** Track where user-controlled input enters, how it propagates through variables and function calls, and whether sanitization or bounds checking occurs before reaching a security-sensitive operation. This determines whether a potential weakness is actually reachable.
 
-5. **Trace data flow through the function.** Follow user-controlled or external inputs from their source to their use. Identify whether bounds checks, sanitization, or validation occur between source and sink. Note any missing error-handling branches.
+5. **Produce a structured vulnerability assessment.** For each identified issue, state: (a) the specific code entity, (b) its abstraction class, (c) the CWE identifier with rationale for why *this* CWE and not a related one, and (d) a concise description of the vulnerability mechanism.
 
-6. **Construct the vulnerability argument.** For each candidate CWE, write a specific claim: "Entity X [from abstraction class Y] flows to sink Z without [specific protection], matching CWE-NNN because [mechanism]." Include the specific lines of code.
+6. **Generate contrastive validation.** For each finding, briefly consider the most likely *misclassification* -- the CWE that a surface-level analysis might incorrectly assign -- and explain why the chosen CWE is correct instead. This prevents semantic drift.
 
-7. **Construct the counter-argument.** For each candidate, also articulate why the code might be safe: "Although `strcpy` is used, the source buffer is statically bounded to N bytes and the destination is N+1 bytes, so CWE-120 does not apply here."
+7. **Assess severity and exploitability.** Note whether the vulnerability requires specific preconditions (e.g., attacker-controlled input reaching the function, specific memory layout) and whether it is exploitable in practice.
 
-8. **Evaluate and select.** Compare the vulnerability argument against the counter-argument for each candidate CWE. Select the determination (vulnerable or safe) that is better supported by the actual code. Discard CWEs where the counter-argument is stronger.
-
-9. **Produce structured output.** For each confirmed finding, report: the CWE identifier, the abstraction class, the specific code lines involved, the root-cause mechanism, and a remediation suggestion. For safe code, briefly state which abstraction classes were checked and why no vulnerability was found.
-
-10. **Assign confidence and severity.** Rate each finding as high/medium/low confidence based on how complete the data-flow trace is (e.g., cross-function flows are lower confidence). Note if full context is missing.
+8. **Recommend specific fixes.** For each CWE finding, suggest a concrete code change that addresses the root cause, not just a symptom.
 
 ## Concrete Examples
 
-**Example 1: Buffer overflow in C function**
+**Example 1: Memory Leak Detection with Correct CWE Attribution**
 
-User: "Is this function vulnerable?"
-
+User: "Check this function for vulnerabilities"
 ```c
-void process_input(char *user_data) {
-    char buffer[64];
-    strcpy(buffer, user_data);
-    log_message(buffer);
-}
-```
-
-Approach:
-1. Entities: `strcpy` (string copy), `buffer` (stack-allocated 64 bytes), `user_data` (function parameter, externally controlled)
-2. Abstraction classes: Memory Management, Input Validation
-3. Candidate CWEs: CWE-119, CWE-120, CWE-121 (Stack-based Buffer Overflow)
-4. Data flow: `user_data` (external, unbounded) → `strcpy` → `buffer` (64 bytes, no bounds check)
-5. Vulnerability argument: `strcpy` copies `user_data` into a 64-byte stack buffer with no length check. If `user_data` exceeds 63 bytes, stack corruption occurs. This is CWE-121 (Stack-based Buffer Overflow), a specific instance of CWE-120.
-6. Counter-argument: Only valid if all callers guarantee `user_data` is < 64 bytes — no such guarantee is visible.
-
-Output:
-```
-**Vulnerability Detected: CWE-121 (Stack-based Buffer Overflow)**
-- Abstraction Class: Memory Management, Input Validation
-- Location: line 3, `strcpy(buffer, user_data)`
-- Root Cause: Unbounded external input `user_data` copied into fixed 64-byte
-  stack buffer via `strcpy`, which performs no length checking.
-- Confidence: High (complete data flow visible within function)
-- Remediation: Replace `strcpy` with `strncpy(buffer, user_data, sizeof(buffer) - 1)`
-  and null-terminate, or use `snprintf`. Better: validate input length at the
-  caller boundary.
-```
-
-**Example 2: Memory leak on error path**
-
-User: "Audit this function for security issues."
-
-```c
-int load_config(const char *path) {
-    FILE *fp = fopen(path, "r");
-    if (!fp) return -1;
-
-    char *buf = malloc(4096);
-    if (!buf) return -1;  // <-- leak: fp not closed
-
-    if (parse(fp, buf) < 0) {
+char* read_config(const char* filename) {
+    FILE* fp = fopen(filename, "r");
+    if (!fp) return NULL;
+    char* buf = malloc(1024);
+    if (!buf) return NULL;  // fp leaked here
+    if (fread(buf, 1, 1024, fp) == 0) {
         free(buf);
-        return -1;  // <-- leak: fp not closed
+        return NULL;  // fp leaked here too
     }
-
     fclose(fp);
-    free(buf);
-    return 0;
+    return buf;
 }
 ```
 
 Approach:
-1. Entities: `fopen`/`fclose` (file handle lifecycle), `malloc`/`free` (memory lifecycle), error-return paths
-2. Abstraction classes: Resource Lifecycle, File and Path Handling, Memory Management
-3. Candidate CWEs: CWE-401 (Memory Leak), CWE-772 (Missing Release of Resource after Effective Lifetime), CWE-403 (File Descriptor Leak)
-4. Trace error paths: `malloc` failure at line 5 returns without `fclose(fp)`. `parse` failure at line 7 returns after `free(buf)` but without `fclose(fp)`.
-5. Vulnerability argument: Two error paths leak the file descriptor opened at line 2. This matches CWE-772 (resource leak) rather than CWE-401 (which is memory-specific).
-6. Counter-argument: Process exit would reclaim the handle — but this function may be called repeatedly in a long-running process, exhausting file descriptors.
+1. Extract entities: `fopen`, `malloc`, `fread`, `free`, `fclose`, `return NULL` statements
+2. Map: `fopen`/`fclose` -> Resource Management + File Handling; `malloc`/`free` -> Memory Management
+3. Trace data flow: `fp` is opened on line 2 but not closed before `return NULL` on lines 4 and 7
 
 Output:
 ```
-**Vulnerability Detected: CWE-772 (Missing Release of Resource after Effective Lifetime)**
-- Abstraction Class: Resource Lifecycle, File and Path Handling
-- Locations: line 5 (malloc failure path), line 8 (parse failure path)
-- Root Cause: File handle `fp` opened at line 2 is not closed on two
-  early-return error paths. In a long-running process, repeated calls
-  exhaust file descriptors.
-- Confidence: High
-- Remediation: Add `fclose(fp)` before each early return, or use a
-  goto-cleanup pattern:
-    error:
-        if (buf) free(buf);
-        if (fp) fclose(fp);
-        return -1;
+## Vulnerability Analysis
 
-**No additional vulnerabilities found.**
-- Memory Management: `malloc`/`free` are correctly paired on all paths.
-- Input Validation: `path` is used directly in `fopen`, which is standard
-  usage (path validation is the caller's responsibility).
+### Finding 1: Resource Leak — CWE-775 (Missing Release of File Descriptor after Effective Lifetime)
+- **Entity**: `fopen()` return value stored in `fp`
+- **Abstraction Class**: Resource Management
+- **Mechanism**: When `malloc` fails (line 4) or `fread` returns 0 (line 6-8),
+  the function returns without calling `fclose(fp)`. The file descriptor leaks.
+- **Why CWE-775 and not CWE-401**: CWE-401 covers memory leaks (heap allocations).
+  The leaked resource here is a file descriptor, not heap memory. The `malloc`
+  allocation is correctly freed on the error path at line 7.
+- **Severity**: Medium. Repeated calls exhaust file descriptor limits (typically 1024).
+- **Fix**: Add `fclose(fp)` before each early return after successful `fopen`:
+
+  if (!buf) { fclose(fp); return NULL; }
+  ...
+  if (fread(...) == 0) { free(buf); fclose(fp); return NULL; }
 ```
 
-**Example 3: False positive correction**
+**Example 2: Distinguishing Buffer Overflow Variants**
 
-User: "A scanner flagged this as CWE-416 (Use After Free). Is that right?"
-
+User: "What CWE applies to this code?"
 ```c
-void cleanup(struct conn *c) {
-    if (c->buf) {
-        free(c->buf);
-        c->buf = NULL;
-    }
-    free(c);
+void process_input(char* user_data) {
+    char local_buf[64];
+    int len = strlen(user_data);
+    memcpy(local_buf, user_data, len);  // no bounds check
+    local_buf[len] = '\0';
 }
 ```
 
 Approach:
-1. Entities: `free` (memory deallocation), `c->buf` (nested pointer), `c` (struct pointer), NULL assignment
-2. Abstraction classes: Memory Management
-3. Candidate CWEs from scanner: CWE-416 (Use After Free)
-4. Trace: `c->buf` is freed, then immediately set to NULL. `c` is freed last. No access to `c->buf` occurs after its `free`. No access to `c` occurs after its `free` within this function.
-5. Counter-argument is stronger: The NULL assignment after `free(c->buf)` is defensive coding. The access to `c->buf` for the NULL write occurs *between* the two `free` calls, which is a valid access (the struct `c` is still live). No use-after-free exists within this function.
+1. Extract entities: `strlen`, `memcpy`, stack buffer `local_buf[64]`, `user_data` (external input)
+2. Map: `memcpy` with unchecked length -> Memory Management + Input Validation
+3. Trace: `user_data` is caller-controlled, `len` is unbounded, `memcpy` copies directly to a 64-byte stack buffer
 
 Output:
 ```
-**No Vulnerability: CWE-416 does not apply here.**
-- Abstraction Class: Memory Management
-- Analysis: The scanner likely flagged the `c->buf = NULL` write after
-  `free(c->buf)` as a use-after-free. However, `c->buf` is a *member*
-  of struct `c`, and `c` itself has not been freed yet. Writing NULL to
-  `c->buf` accesses the struct's memory (still valid), not the freed
-  buffer. This is standard defensive cleanup.
-- Caveat: If callers access `c` after calling `cleanup()`, that would
-  be CWE-416 — but that is a caller-side issue, not in this function.
+## Vulnerability Analysis
+
+### Finding 1: Stack Buffer Overflow — CWE-121 (Stack-based Buffer Overflow)
+- **Entity**: `memcpy(local_buf, user_data, len)` where `len = strlen(user_data)`
+- **Abstraction Class**: Memory Management, Input Validation
+- **Mechanism**: `user_data` is externally controlled. `strlen(user_data)` can
+  exceed 64, causing `memcpy` to write past `local_buf` boundaries on the stack.
+- **Why CWE-121 and not CWE-120 or CWE-787**:
+  - CWE-120 (Buffer Copy without Checking Size of Input) is the *cause* pattern
+  - CWE-787 (Out-of-bounds Write) is the generic parent
+  - CWE-121 is most precise: the target is a stack-allocated buffer, enabling
+    return address overwrite and code execution
+- **Severity**: Critical. Stack buffer overflows allow arbitrary code execution.
+- **Fix**: Bound the copy length:
+  size_t len = strlen(user_data);
+  if (len >= sizeof(local_buf)) len = sizeof(local_buf) - 1;
+  memcpy(local_buf, user_data, len);
+  local_buf[len] = '\0';
+```
+
+**Example 3: Contrastive Reasoning Catches Misclassification**
+
+User: "Is this vulnerable? A scanner flagged it as use-after-free."
+```c
+void update_cache(struct cache* c, int key) {
+    struct entry* e = cache_lookup(c, key);
+    if (e) {
+        cache_remove(c, key);   // frees e internally
+        log_removal(e->value);  // accesses freed memory
+    }
+}
+```
+
+Approach:
+1. Extract entities: `cache_lookup`, `cache_remove`, `e->value` dereference after removal
+2. Map: pointer `e` used after `cache_remove` frees it -> Memory Management
+3. Contrastive check: the scanner's CWE-416 (Use-After-Free) classification is correct here
+
+Output:
+```
+## Vulnerability Analysis
+
+### Finding 1: Use-After-Free — CWE-416 (Use After Free)
+- **Entity**: `e->value` accessed after `cache_remove(c, key)` on line 5
+- **Abstraction Class**: Memory Management
+- **Mechanism**: `cache_remove` frees the entry struct internally. The subsequent
+  `log_removal(e->value)` dereferences freed memory via the dangling pointer `e`.
+- **Scanner validation**: The CWE-416 classification is correct.
+  - CWE-416 (not CWE-415/Double Free): only one free occurs; the issue is
+    subsequent *use*, not a second free
+  - CWE-416 (not CWE-476/NULL Deref): `e` is non-null (checked on line 3)
+    but *freed*, not null
+- **Severity**: High. UAF can lead to arbitrary code execution if the freed
+  memory is reallocated with attacker-controlled content.
+- **Fix**: Capture the value before removal:
+  int val = e->value;
+  cache_remove(c, key);
+  log_removal(val);
 ```
 
 ## Best Practices
 
-- **Do:** Always identify the specific CWE, not just the abstraction class. "Memory issue" is insufficient; "CWE-416 Use After Free" is actionable.
-- **Do:** Trace data flow from source to sink explicitly. Name the input source, every transformation, and the dangerous sink.
-- **Do:** Construct counter-arguments for every finding. If you cannot articulate why the code *might* be safe, your analysis is incomplete.
-- **Do:** Distinguish between intra-function vulnerabilities (high confidence) and cross-function vulnerabilities (require more context, lower confidence).
-- **Avoid:** Attributing a vulnerability to the wrong CWE. A memory leak (CWE-401) is not a use-after-free (CWE-416). A stack overflow (CWE-121) is not a heap overflow (CWE-122). Precision matters for remediation.
-- **Avoid:** Flagging standard library usage as vulnerable without tracing actual data flow. `strcpy` is not inherently a vulnerability — it depends on whether the source is bounded.
-- **Avoid:** Producing binary "vulnerable/safe" verdicts without structured reasoning. The reasoning *is* the value.
+**Do:**
+- Always extract concrete code entities before classifying -- never jump directly from "this looks like a memory bug" to a CWE number. Ground every classification in specific identifiable operations.
+- Perform contrastive validation: for each CWE assignment, explicitly name the most likely *wrong* CWE and explain why it does not apply. This is the single most impactful step from VulReaD.
+- Distinguish between the *cause* CWE (e.g., CWE-120: buffer copy without size check) and the *consequence* CWE (e.g., CWE-121: stack buffer overflow). Report the most specific applicable CWE.
+- Track data flow from input sources to security-sensitive sinks. A dangerous function call without reachable attacker-controlled input is a code smell, not a vulnerability.
+
+**Avoid:**
+- Do not assign CWEs based on function names alone. `strcpy` is not automatically CWE-120; it depends on whether the source is bounded and the destination is appropriately sized.
+- Do not conflate related CWEs. CWE-401 (Memory Leak) and CWE-416 (Use-After-Free) both involve memory management but have opposite mechanisms -- one is failure to free, the other is use after freeing. Mixing them undermines the entire analysis.
+- Do not generate "fluent but misaligned" explanations. If you cannot trace a clear entity -> abstraction class -> CWE path, say so explicitly rather than producing a confident-sounding wrong classification.
+- Do not ignore the "non-vulnerable" conclusion. Thoroughly analyzed code that turns out to be safe is a valid and valuable result. Not every suspicious pattern is exploitable.
 
 ## Error Handling
 
-- **Incomplete code context:** If the function calls other functions whose implementations are not visible, state this explicitly and mark cross-function flows as lower confidence. Recommend the user provide callers/callees for higher fidelity.
-- **Language-specific semantics:** Memory management vulnerabilities apply primarily to C/C++. For managed languages (Java, Python, Go), shift focus to injection, access control, cryptographic, and logic vulnerabilities. Do not report memory leaks in garbage-collected languages unless dealing with native bindings or resource handles.
-- **Ambiguous CWE mapping:** When a vulnerability could map to multiple CWEs (e.g., CWE-119 vs CWE-120 vs CWE-121), prefer the most specific CWE. State the parent-child relationship if relevant.
-- **Scanner disagreement:** When correcting a scanner's CWE attribution, explain both why the scanner's CWE is wrong and what the correct CWE is (or why the code is actually safe). Never dismiss a scanner finding without analysis.
+- **Incomplete code context**: When analyzing a single function without visibility into called functions (e.g., does `cache_remove` actually free the entry?), state assumptions explicitly: "Assuming `cache_remove` frees the entry internally, this is CWE-416. If it only unlinks without freeing, this is not a vulnerability."
+- **Ambiguous CWE mapping**: When an entity maps to multiple plausible CWEs with similar confidence, list all candidates with the distinguishing condition for each. Let the user resolve based on broader codebase knowledge.
+- **Language-specific gaps**: The 13 abstraction classes were designed primarily around C/C++ vulnerabilities. For managed languages (Java, Python, Go), skip Memory Management checks for heap issues and focus on Input Validation, Code Injection, Access Control, and Information Disclosure classes.
+- **Large functions**: For functions exceeding 100 lines, break the analysis into segments around each security-sensitive operation rather than attempting a single holistic assessment. Track data flow across segments.
 
 ## Limitations
 
-- **Cross-file and whole-program analysis:** This skill operates best at function-level granularity. Vulnerabilities that span multiple files, involve complex callback chains, or require whole-program alias analysis may be missed or reported at lower confidence.
-- **Concurrency vulnerabilities:** Race conditions (CWE-362) and TOCTOU issues (CWE-367) require understanding of execution interleaving that is difficult to reason about from static code alone. Findings in this class should be treated as hypotheses.
-- **Custom frameworks and DSLs:** The 13 abstraction classes cover standard security domains. Vulnerabilities specific to custom middleware, proprietary APIs, or domain-specific languages may not map cleanly to existing CWE categories.
-- **Quantitative bounds analysis:** Determining whether an integer overflow actually triggers (e.g., whether a multiply can exceed `INT_MAX` given domain constraints) often requires runtime information that is unavailable in static analysis.
-- **Not a replacement for tooling:** This reasoning approach complements static analyzers and fuzzers. It excels at explaining *why* code is vulnerable and correcting misattributions, but should not be the sole detection mechanism for production codebases.
+- This approach works best for C/C++ code where memory safety CWEs dominate. For web application vulnerabilities (XSS, CSRF, SSRF), the abstraction classes still apply but the entity extraction step requires adaptation to HTTP handlers, template rendering, and request parsing.
+- CWE assignment precision depends on available context. Analyzing an isolated function without its callers or callees limits data-flow tracing and may produce false positives or overly broad CWE assignments.
+- The 13 abstraction classes do not cover every CWE. Vulnerabilities in areas like cryptographic protocol design, business logic flaws, or race conditions in distributed systems may not map cleanly.
+- This is static reasoning over source code. It cannot detect vulnerabilities that depend on runtime state, specific compiler behavior, or hardware-level conditions (e.g., speculative execution side channels).
 
 ## Reference
 
-**Paper:** Mukhtar et al., "VulReaD: Knowledge-Graph-guided Software Vulnerability Reasoning and Detection," arXiv:2602.10787, 2026. Look for: the 13 vulnerability abstraction classes (Section 3), the KG-guided entity-to-CWE mapping pipeline (Section 3.2), and the contrastive reasoning generation with ORPO training (Section 3.3) that demonstrates how structured CWE-anchored reasoning outperforms unconstrained LLM explanations by 8-10% binary F1 and 30% Macro-F1 on multi-class classification.
+**Paper**: [VulReaD: Knowledge-Graph-guided Software Vulnerability Reasoning and Detection](https://arxiv.org/abs/2602.10787v1) (Mukhtar et al., 2026). Key sections: Section 3 (KG construction and 13 abstraction classes), Section 4 (contrastive reasoning pair generation), Section 5 (ORPO training objective). The core takeaway for practitioners is the contrastive validation pattern -- always check your CWE assignment against the most likely misclassification.
