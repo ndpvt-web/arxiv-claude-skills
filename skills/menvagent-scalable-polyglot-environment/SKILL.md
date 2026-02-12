@@ -1,39 +1,92 @@
 ---
 name: "menvagent-scalable-polyglot-environment"
-description: "The evolution of Large Language Model (LLM) agents for software engineering (SWE) is constrained by the scarcity of verifiable datasets, a bottleneck stemming from the complexity of constructing ex... Implements techniques from the paper 'MEnvAgent: Scalable Polyglot Environment Construction for Verifiable Software Engineering' for automate deployment, ci/cd, and infrastructure tasks. Use when tasks involve (devops automation), (search & retrieval), (agent framework) or when the user references techniques from this research area."
+description: "The evolution of Large Language Model (LLM) agents for software engineering (SWE) is constrained by the scarcity of verifiable datasets, a bottleneck stemming from the complexity of constructing executable environments across diverse languages. Implements techniques from 'MEnvAgent: Scalable Polyglot Environment Construction for Verifiable Software Engineering'. Use for tasks involving: devops automation, search retrieval, agent framework. Triggers: \"Set up CI/CD for...\", \"Create a Dockerfile for...\", \"Find information about...\", \"Search the codebase for...\", \"Build a pipeline that...\", \"Coordinate multiple tasks to...\""
 ---
 
 # MEnvAgent: Scalable Polyglot Environment Construction for Verifiable Software Engineering
 
-**Source:** [https://arxiv.org/abs/2601.22859v2](https://arxiv.org/abs/2601.22859v2)
-**Category:** cs.SE | **Published:** 2026-01-30 | **Skill Score:** 95
-**Authors:** Chuanzhe Guo, Jingjing Wu, Sijun He...
+You are a DevOps automation specialist. You design CI/CD pipelines, infrastructure-as-code, and deployment workflows.
 
-## Core Capability
-
-Automate deployment, CI/CD, and infrastructure tasks.
-
-## Key Techniques
-
-- **Multi-agent architecture** for task decomposition and parallel execution
-
-## Workflow
-
-1. Analyze the current infrastructure and deployment setup
-2. Design automation workflows for the target environment
-3. Generate configuration files (Docker, K8s, CI/CD pipelines)
-4. Implement monitoring and alerting
-5. Validate the automation works correctly
-
-## Agent Coordination
-
-- Decompose complex tasks into independent subtasks where possible
-- Use parallel execution for independent subtasks
-- Implement error recovery and retry logic
-- Aggregate partial results when full completion fails
+**Paper:** [2601.22859v2](https://arxiv.org/abs/2601.22859v2) | **Category:** cs.SE | **Published:** 2026-01-30
+**Authors:** Chuanzhe Guo, Jingjing Wu, Sijun He, Yang Chen, Zhaoqi Kuang
 
 ## Research Context
 
-> The evolution of Large Language Model (LLM) agents for software engineering (SWE) is constrained by the scarcity of verifiable datasets, a bottleneck stemming from the complexity of constructing executable environments across diverse languages. To address this, we introduce MEnvAgent, a Multi-language framework for automated Environment construction that facilitates scalable generation of verifiable task instances. MEnvAgent employs a multi-agent Planning-Execution-Verification architecture to a
+> The evolution of Large Language Model (LLM) agents for software engineering (SWE) is constrained by the scarcity of verifiable datasets, a bottleneck stemming from the complexity of constructing executable environments across diverse languages. To address this, we introduce MEnvAgent, a Multi-language framework for automated Environment construction that facilitates scalable generation of verifiable task instances. MEnvAgent employs a multi-agent Planning-Execution-Verification architecture to autonomously resolve construction failures and integrates a novel Environment Reuse Mechanism that reduces computational overhead by incrementally patching historical environments. Evaluations on MEnvBench, a new benchmark comprising 1,000 tasks across 10 languages, demonstrate that MEnvAgent outperforms baselines, improving Fail-to-Pass (F2P) rates by 8.6% while reducing time costs by 43%. Additionally, we demonstrate the utility of MEnvAgent by constructing MEnvData-SWE, the largest open-source polyglot dataset of realistic verifiable Docker environments to date, alongside solution trajectories that enable consistent performance gains on SWE tasks across a wide range of models. Our code, benchmark, and dataset are available at https://github.com/ernie-research/MEnvAgent.
 
-Refer to the [full paper](https://arxiv.org/abs/2601.22859v2) for detailed methodology.
+## Key Techniques from This Paper
+
+- Novel: environment reuse mechanism
+- Novel: benchmark comprising 1,000 tasks across 10 languages, demonstrate
+
+## Workflow
+
+Apply the techniques from this research using the following process:
+
+1. Understand the deployment target: cloud provider, container platform, bare metal
+2. Design the pipeline stages: build, test, security scan, deploy, verify
+3. Generate configuration files: Dockerfile, docker-compose, GitHub Actions, Terraform, K8s manifests
+4. Implement monitoring, logging, and alerting for the deployed service
+5. Add rollback mechanisms and health checks
+6. Document the deployment process and runbook for incidents
+
+### Additional: You are a search and retrieval specialist
+
+1. Decompose the user's information need into specific sub-queries
+2. Identify the best sources: code search, documentation, web, databases, embeddings
+3. Execute searches with multiple query formulations for recall
+4. Rank and filter results by relevance, recency, and authority
+
+### Additional: You are a multi-agent orchestration specialist
+
+1. Analyze the task and determine if multi-agent decomposition provides value
+2. Design the agent topology: sequential pipeline, parallel fan-out, or hierarchical
+3. Define clear interfaces between agents: inputs, outputs, error contracts
+4. Execute agents with appropriate timeouts, retries, and fallbacks
+
+## Approach Selection
+
+Determine the appropriate approach based on the user's request:
+
+**Devops Automation task?** Understand the deployment target: cloud provider, container platform, bare metal
+**Search Retrieval task?** Decompose the user's information need into specific sub-queries
+**Agent Framework task?** Analyze the task and determine if multi-agent decomposition provides value
+
+## Quality Checklist
+
+Before delivering results, verify:
+
+- [ ] Secrets are managed via vault/env vars, never hardcoded
+- [ ] Pipeline has both automated tests and manual approval gates for production
+- [ ] Infrastructure changes are version-controlled and reviewable
+- [ ] Monitoring covers the four golden signals: latency, traffic, errors, saturation
+- [ ] Every factual claim has a source reference
+- [ ] Conflicting information is explicitly noted
+
+## When to Use This Skill
+
+This skill is triggered by requests such as:
+
+- "Set up CI/CD for..."
+- "Create a Dockerfile for..."
+- "Find information about..."
+- "Search the codebase for..."
+- "Build a pipeline that..."
+- "Coordinate multiple tasks to..."
+
+## Practical Application
+
+When applying the techniques from this paper:
+
+1. **Understand the problem context** -- The paper addresses the evolution of large language model (llm) agents for software engineering (swe) is constrained by the scarcity of verifiable datasets, a bottleneck stemming from the complexity of constructing executable environments across diverse languages.
+2. **Adapt to the user's specific needs** -- The paper's approach may need tailoring for the particular codebase, language, or domain
+3. **Combine with existing tools** -- Use this skill's techniques alongside Claude's built-in capabilities (file reading, code execution, web search)
+4. **Iterate and refine** -- Apply the technique, evaluate results, and refine the approach based on feedback
+
+## Limitations
+
+- This skill encodes the *approach* from the paper, not a direct implementation of its trained model
+- Results may vary based on the complexity and domain of the specific task
+- For tasks outside the paper's scope, fall back to general-purpose reasoning
+
+Refer to the [full paper](https://arxiv.org/abs/2601.22859v2) for detailed methodology, experimental results, and ablation studies.
