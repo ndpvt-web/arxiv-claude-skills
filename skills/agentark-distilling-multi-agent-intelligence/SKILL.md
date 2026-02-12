@@ -1,274 +1,199 @@
 ---
 name: "agentark-distilling-multi-agent-intelligence"
-description: "Distill multi-agent debate dynamics into a single LLM through hierarchical training strategies. Use when: 'set up multi-agent distillation pipeline', 'distill debate into single model', 'train process reward model for reasoning', 'run GRPO fine-tuning on reasoning traces', 'generate diverse reasoning trajectories from agent debate', 'build AgentArk distillation workflow'."
+description: "Distill multi-agent debate reasoning into a single LLM's behavior. Apply AgentArk's three-tier distillation strategy to design training pipelines, self-correcting prompts, and process-aware reward systems. Use when: 'distill multi-agent into single model', 'reduce multi-agent inference cost', 'train self-correcting reasoning', 'build process reward model', 'agent distillation pipeline', 'single-agent with multi-agent quality'."
 ---
 
 # AgentArk: Distilling Multi-Agent Intelligence into a Single LLM Agent
 
-This skill enables Claude to help users implement the AgentArk distillation framework — a pipeline that runs multi-agent debates to generate diverse reasoning trajectories, then distills those collective dynamics into a single model's weights through three hierarchical strategies: reasoning-enhanced supervised fine-tuning (R-SFT), trajectory-based data augmentation (DA), and process-aware distillation (PAD) with a trained process reward model and GRPO reinforcement learning. The result is a single LLM that reasons with the quality of a multi-agent system at the inference cost of one model.
+This skill enables Claude to apply the AgentArk framework for collapsing multi-agent debate systems into a single model that retains multi-agent-level reasoning, self-correction, and robustness. Rather than running N agents at inference time (with N-fold cost and error propagation risk), AgentArk shifts that computation to training time through three hierarchical distillation strategies: reasoning-enhanced fine-tuning, trajectory-based data augmentation, and process-aware distillation with step-level reward models. Claude uses this skill to architect distillation pipelines, design debate-to-training data converters, build process reward models, and structure GRPO-based RL fine-tuning for any reasoning task.
 
 ## When to Use
 
-- When the user wants to improve a single model's reasoning by leveraging multi-agent debate data, rather than deploying expensive multi-agent systems at inference time
-- When setting up a training pipeline that generates reasoning trajectories from LLM debates and fine-tunes a student model on them
-- When the user needs to train a Process Reward Model (PRM) that scores intermediate reasoning steps, not just final answers
-- When implementing GRPO (Group Relative Policy Optimization) using a PRM as the reward signal for reasoning tasks
-- When the user asks to generate diverse, correctness-filtered training data from multi-agent interactions on math, QA, or medical reasoning datasets
-- When configuring the AgentArk repo (inference.py, label.py, prm/finetune2.py, openrlhf GRPO) for an end-to-end distillation run
+- When the user wants to replace a multi-agent debate system with a single model that preserves reasoning quality
+- When the user asks how to reduce inference cost of a multi-agent pipeline without sacrificing accuracy
+- When building a training pipeline that teaches a model to self-correct by learning from agent debate trajectories
+- When designing a Process Reward Model (PRM) that scores intermediate reasoning steps, not just final answers
+- When the user needs to generate diverse, correctness-filtered training data from multi-agent interactions
+- When applying GRPO (Group Relative Policy Optimization) for reasoning-focused RL fine-tuning
+- When the user wants a single agent to exhibit step decomposition, intermediate verification, and error localization behaviors typically only seen in multi-agent systems
 
 ## Key Technique
 
-**Core insight:** Multi-agent debate systems (where N agents argue over a problem for K rounds) produce high-quality reasoning, but cost N*K inference calls per problem. AgentArk shifts this cost from inference to training by collecting debate trajectories once, then distilling the collective intelligence into a single model's weights. The distilled model learns to self-correct and reason from multiple angles without needing peer agents at test time.
+**The core insight**: Multi-agent debate works because agents critique each other's reasoning, catch errors, and converge on better answers through iterative refinement. AgentArk captures these dynamics in training data and reward signals so a single model internalizes the critique-and-correct loop. The distilled model generates, evaluates, and refines answers within a single forward pass -- mimicking how a human internalizes group reasoning after enough collaborative problem-solving.
 
-**Three hierarchical strategies, each building on the last:**
+**Three hierarchical strategies** address increasing levels of sophistication. **Reasoning-Enhanced SFT (R-SFT)** trains on final consensus answers paired with full reasoning traces, using a combined loss over both rationale quality and answer correctness. **Data Augmentation (DA)** extracts 1-3 diverse correct trajectories per problem from debate logs using a teacher LLM -- selecting paths that use distinct mathematical identities, logical heuristics, or assumptions -- forcing the student to learn multiple valid solution strategies rather than memorizing one. **Process-Aware Distillation (PAD)** treats it as an RL problem: a Process Reward Model trained with contrastive loss scores each reasoning step (not just the final answer), then GRPO optimizes the policy against these step-level rewards without requiring a separate value function.
 
-1. **R-SFT (Reasoning-Enhanced SFT):** Fine-tunes the student on `(problem, reasoning_trace, answer)` triples extracted from successful debate trajectories. The loss has two terms — a reasoning loss over intermediate tokens and an answer loss over the final prediction — forcing the model to learn *how* to reason, not just *what* to answer.
-
-2. **DA (Data Augmentation via Correctness-First Diverse Extraction):** Uses a teacher LLM to extract k=1..3 structurally distinct trajectories per problem from debate logs, filtered for correctness against ground truth. The student trains on all k trajectories per problem, internalizing multiple valid solution paths rather than memorizing one.
-
-3. **PAD (Process-Aware Distillation):** The most powerful strategy. First trains a PRM (Process Reward Model) initialized from the student's weights in two stages — frozen backbone (reward head only) then full fine-tuning. Then runs GRPO: samples G reasoning outputs from the student, scores each with the PRM, computes normalized advantages, and optimizes a clipped surrogate objective with KL penalty against a reference policy. This teaches the student to self-evaluate reasoning steps, not just produce them.
-
-**Results:** PAD achieves +4.8% average accuracy improvement over a single agent baseline across math (MATH, GSM8K), medical (MedMCQA), and multi-hop QA (HotpotQA) tasks, approaching vanilla multi-agent performance at a fraction of the inference cost. Cross-family distillation (e.g., debate data from Qwen used to train LLaMA) yields larger, more consistent gains than same-family.
+**What matters most**: PRM capacity matters more than student model size. Reasoning quality in training data outweighs quantity -- high-signal trajectories from corrective debate rounds (where agents pivoted from wrong to right) transfer better than clean error-free paths. Excessive supervision can overwhelm small models, so data filtering is critical.
 
 ## Step-by-Step Workflow
 
-### 1. Set up the environment and clone AgentArk
+1. **Run multi-agent debate to generate raw data.** Deploy N homogeneous agents (same LLM backbone) debating for K rounds on your task dataset. Each round: agents generate reasoning traces conditioned on the problem and peer responses. Use 3-5 agents and 2-3 rounds as a baseline. Collect full debate logs including all intermediate traces.
 
-```bash
-git clone https://github.com/AIFrontierLab/AgentArk.git
-cd AgentArk
-pip install -r requirements.txt
-# Key deps: transformers, vllm, flash-attn, deepspeed, trl, torch, datasets, wandb
-# Requires Python 3.10+, CUDA 12.5, 40GB+ GPU
-```
+   ```yaml
+   # Example debate config
+   num_agents: 4
+   num_rounds: 3
+   temperature: 0.7
+   max_tokens: 2048
+   ```
 
-### 2. Configure the multi-agent debate method
+2. **Filter for correctness and extract corrective trajectories.** Verify final consensus answers against ground truth. Prioritize trajectories where agents initially proposed incorrect steps but self-corrected after critique -- these "corrective trajectories" capture the core reasoning dynamics better than clean paths.
 
-Choose a debate protocol by editing `methods/<method_name>/configs/config_main.yaml`. For LLM Debate:
+   ```python
+   # Pseudocode for trajectory filtering
+   for debate in debate_logs:
+       if debate.final_answer == ground_truth:
+           for trace in debate.agent_traces:
+               if trace.had_correction:  # pivoted from wrong to right
+                   priority_trajectories.append(trace)
+               elif trace.all_correct:
+                   standard_trajectories.append(trace)
+   ```
 
-```yaml
-num_agents: 3      # 3-5 agents recommended; small models saturate at 5
-num_rounds: 2      # 2-3 rounds; diminishing returns beyond 3
-```
+3. **Choose your distillation tier based on compute budget and target quality.**
+   - **R-SFT** (simplest): Fine-tune on (reasoning_trace, answer) pairs with combined loss. Good baseline, lowest compute.
+   - **DA** (moderate): Use a teacher LLM to extract 1-3 diverse correct reasoning paths per problem from debate logs. Train student on augmented dataset.
+   - **PAD** (strongest): Train a PRM on step-level correctness labels, then run GRPO to optimize the student policy against PRM rewards.
 
-For DyLAN (dynamic LLM-agent network with listwise ranking):
+4. **For DA: Run correctness-first diverse extraction.** Prompt a high-capacity teacher to parse each debate log and extract reasoning paths that are (a) correct (lead strictly to ground truth) and (b) diverse (use different strategies). Deduplicate by approach, not by surface text.
 
-```yaml
-num_agents: 4
-num_rounds: 3
-activation: "listwise"
-```
+   ```
+   Teacher prompt: "Given this multi-agent debate log, extract 1-3 reasoning
+   trajectories that arrive at the correct answer '{gt}' using DISTINCT
+   logical approaches. Each trajectory must be self-contained and verifiable.
+   Label each with the core strategy it employs."
+   ```
 
-### 3. Run multi-agent inference to generate debate logs
+5. **For PAD: Train the Process Reward Model in two stages.** Stage I: Freeze the LLM backbone, train only a reward head on step-level correctness labels using contrastive loss. This aligns features without catastrophic forgetting. Stage II: Unfreeze the backbone for end-to-end fine-tuning specialized in detecting logical fallacies at each reasoning step.
 
-```bash
-python inference.py \
-  --method_name llm_debate \
-  --test_dataset_name MATH \
-  --model_name Qwen/Qwen2.5-7B-Instruct \
-  --model_temperature 0.5 \
-  --model_max_tokens 4096 \
-  --use_vllm \
-  --tensor_parallel_size 2
-```
+   ```bash
+   # PRM training
+   python prm/finetune2.py \
+     --model_name_or_path <base_model> \
+     --train_data_path labeled_steps.jsonl \
+     --output_dir prm_checkpoint \
+     --learning_rate 1e-4 \
+     --per_device_train_batch_size 64 \
+     --bf16
+   ```
 
-This produces debate logs with per-agent reasoning traces `{r_1, ..., r_n}` and consensus answers for each problem.
+6. **For PAD: Run GRPO optimization.** Sample N completions per prompt (N >= 8), score each with the PRM, compute group-relative advantages, and update the policy. Use RLOO (Reinforce Leave-One-Out) advantage estimation for variance reduction.
 
-### 4. Label solutions for correctness and extract trajectories
+   ```bash
+   python -m openrlhf.cli.train_grpo \
+     --pretrain <sft_model> \
+     --reward_pretrain <prm_checkpoint> \
+     --n_samples_per_prompt 8 \
+     --advantage_estimator rloo \
+     --reward_mode PRMVR \
+     --micro_rollout_batch_size 4
+   ```
 
-```bash
-python label.py --input_file <debate_output> --dataset_name MATH
-```
+7. **Evaluate distilled models on held-out reasoning tasks.** Measure not just final-answer accuracy but reasoning quality: step decomposition clarity, self-correction frequency, and coherence across multi-step chains. Compare against the original multi-agent system and a vanilla SFT baseline.
 
-Output format per problem:
-
-```json
-{
-  "query": "Find the value of x such that ...",
-  "gt": "42",
-  "solutions": [
-    {"id": 1, "text": "Step 1: ... Step 2: ... Answer: 42", "is_correct": true},
-    {"id": 2, "text": "Step 1: ... Answer: 37", "is_correct": false}
-  ]
-}
-```
-
-Filter to keep only trajectories where agents reached the correct ground-truth answer. Prioritize "corrective trajectories" — cases where an agent initially erred but self-corrected after peer critique.
-
-### 5. Choose and execute a distillation strategy
-
-**For R-SFT:** Format data as `(x, r, y*)` triples. Fine-tune with combined reasoning + answer loss:
-
-```
-L_SFT = -E[L_reasoning + L_answer]
-L_reasoning = sum(log p(r_t | r_<t, x))   # learn to reason
-L_answer = log p(y* | r, x)                # ground in correct answer
-```
-
-**For DA:** Use a teacher LLM to extract k diverse trajectories per problem from debate logs. Each must be correct (leads to y\*) and structurally distinct. Train on all k per problem:
-
-```
-L_Aug = -(1/k) * sum_i sum_t log p(y_t | y_<t, r_i, x)
-```
-
-**For PAD (recommended):** Proceed to steps 6-8.
-
-### 6. Train the Process Reward Model (PRM)
-
-Initialize PRM from student model weights. Stage I — freeze backbone, train reward head only:
-
-```bash
-python prm/finetune2.py \
-  --model_name_or_path <student_model> \
-  --fix_llm \
-  --bf16 \
-  --gradient_checkpointing \
-  --output_dir ./prm_stage1
-```
-
-Stage II — unfreeze backbone for full specialization:
-
-```bash
-python prm/finetune2.py \
-  --model_name_or_path ./prm_stage1 \
-  --bf16 \
-  --gradient_checkpointing \
-  --output_dir ./prm_stage2
-```
-
-The PRM learns to assign step-level correctness scores z_t in {0, 1} to each intermediate reasoning step, using contrastive loss that compares steps within episodes.
-
-### 7. Run GRPO reinforcement learning with PRM rewards
-
-```bash
-python -m openrlhf.cli.train_grpo \
-  --pretrain <student_model> \
-  --reward_model ./prm_stage2 \
-  --reward_mode PRMVR \
-  --n_samples_per_prompt 8 \
-  --advantage_estimator rloo \
-  --bf16
-```
-
-GRPO samples G=8 reasoning outputs per problem, scores them with the PRM, computes normalized advantages `A_i = (R(o_i) - mean) / std`, and optimizes a clipped surrogate with KL penalty against the reference (pre-training) policy.
-
-### 8. Evaluate the distilled model
-
-```bash
-# Math tasks (exact match)
-python -m eval.math_eval --input_file <results> --dataset_name MATH
-
-# QA tasks (ROUGE, BERTScore, F1)
-python -m eval.short_answer_eval \
-  --model_name_or_path <distilled_model> \
-  --dataset_name HotpotQA
-```
-
-Compare against: single-agent baseline, vanilla multi-agent system, and each distillation strategy to validate gains.
+8. **Iterate on data quality, not quantity.** If the distilled model underperforms, improve trajectory filtering before adding more data. Check that corrective trajectories outnumber clean ones. Verify the PRM correctly assigns low scores to plausible-but-wrong intermediate steps.
 
 ## Concrete Examples
 
-**Example 1: Distilling math reasoning from Qwen debate into LLaMA**
+**Example 1: Distilling a math reasoning debate system into a single model**
 
-```
-User: I want to improve my LLaMA-3-8B's math reasoning without using
-      multi-agent inference. Can we distill from Qwen debate traces?
+User: "We have a 4-agent debate system for math word problems that gets 85% accuracy but costs 4x inference. How do I distill it into one model?"
 
 Approach:
-1. Run 3-agent, 2-round LLM Debate using Qwen-2.5-7B-Instruct on
-   MATH + GSM8K datasets via inference.py
-2. Label solutions with label.py, filter for correct consensus answers
-3. Extract 3 diverse trajectories per problem using a teacher LLM
-   (correctness-first diverse extraction)
-4. Train PRM initialized from LLaMA-3-8B weights (Stage I frozen,
-   Stage II unfrozen)
-5. Run GRPO on LLaMA-3-8B with PRM rewards, n_samples_per_prompt=8
+1. Collect debate logs from all 4 agents across your training set (e.g., GSM8K, MATH)
+2. Filter to debates where final consensus matches ground truth
+3. Extract corrective trajectories where agents caught each other's arithmetic or logic errors
+4. Apply DA strategy: use GPT-4 as teacher to extract 2-3 diverse solution paths per problem
+5. Fine-tune your target model (e.g., Qwen3-8B) on the augmented dataset
+6. If accuracy gap remains >3%, upgrade to PAD: train a PRM on step-labeled data, run GRPO
 
-Output:
-- Cross-family distillation yields larger gains than same-family
-- Expect ~4-6% accuracy improvement on MATH over baseline LLaMA-3-8B
-- Single-model inference cost (no multi-agent overhead at test time)
+Output structure:
+```
+training_data/
+  debate_logs/          # Raw multi-agent outputs
+  filtered_correct/     # Correctness-verified trajectories
+  augmented/            # Teacher-extracted diverse paths
+  step_labels/          # Per-step correctness labels for PRM
+models/
+  rsft_baseline/        # Stage 1: R-SFT model
+  da_model/             # Stage 2: DA-trained model
+  prm_checkpoint/       # Process Reward Model
+  pad_final/            # Stage 3: GRPO-optimized model
 ```
 
-**Example 2: Training a PRM for step-level reasoning verification**
+**Example 2: Building a self-correcting code review agent**
 
-```
-User: I have debate trajectories with labeled correct/incorrect steps.
-      How do I train a PRM that scores reasoning quality?
+User: "I want a single model that reviews code like a team of reviewers would -- catching bugs, style issues, and logic errors in one pass."
 
 Approach:
-1. Initialize PRM from student model checkpoint to reuse its
-   representations
-2. Stage I: Freeze all layers except final layer + reward head.
-   Train reward head on step-level correctness labels z_t in {0,1}
-   using contrastive loss (compare steps within same episode)
-3. Stage II: Unfreeze entire backbone. Fine-tune end-to-end so the
-   model develops specialized attention patterns for fallacy detection
-4. Validate PRM by checking correlation between PRM scores and actual
-   step correctness on held-out data
+1. Set up 3-agent debate where each agent reviews code from a different angle (correctness, performance, maintainability)
+2. Run debates on a corpus of PRs with known issues
+3. Collect trajectories where Agent B caught a bug Agent A missed, or Agent C refined Agent B's suggestion
+4. Extract corrective patterns: "Initially missed null check -> peer pointed out edge case -> revised to include guard clause"
+5. Fine-tune with R-SFT on (code_diff, multi_perspective_review) pairs
+6. For higher quality, apply PAD with a PRM trained to score review completeness at each review step
 
-Output:
-- PRM that assigns scalar reward per reasoning step
-- Use as reward signal for GRPO: advantages = (R(o_i) - mean) / std
-- PRM capacity matters more than student size — invest in PRM quality
+Output: A single model that generates reviews structured as:
+```
+## Correctness
+- Line 42: Potential null dereference when `user.profile` is undefined [HIGH]
+
+## Performance
+- Line 78: N+1 query inside loop -- batch fetch outside [MEDIUM]
+
+## Self-correction
+- Initially considered line 55 safe, but on reflection the type cast
+  could fail for union types. Recommend explicit type guard.
 ```
 
-**Example 3: Quick R-SFT baseline without RL infrastructure**
+**Example 3: Reducing a multi-agent summarization pipeline**
 
-```
-User: I don't have RL training infrastructure yet. What's the simplest
-      AgentArk strategy I can run with standard SFT tooling?
+User: "Our 3-agent summarize-critique-refine pipeline produces great summaries but is too slow for production."
 
 Approach:
-1. Run multi-agent debate (3 agents, 2 rounds) on your target dataset
-2. Label and filter for correct trajectories
-3. Format as standard SFT data: (problem, reasoning_trace, answer)
-4. Fine-tune with dual loss: reasoning loss on intermediate tokens +
-   answer loss on final prediction
-5. Use any SFT framework (transformers Trainer, axolotl, etc.)
-
-Output:
-- R-SFT gives moderate gains (lower than PAD but no RL needed)
-- Particularly effective for smaller models (0.6B-1.7B)
-- Good stepping stone before investing in full PAD pipeline
-```
+1. Collect (document, agent1_draft, agent2_critique, agent3_refined_summary) tuples
+2. Focus on cases where the critique meaningfully improved the summary (changed factual claims, fixed omissions)
+3. For R-SFT: train on (document -> refined_summary) with the full critique chain as the reasoning trace
+4. For DA: extract diverse summarization strategies (extractive key points vs. abstractive narrative vs. structured outline)
+5. The distilled model learns to internally generate-critique-refine, producing first-pass summaries at refined quality
 
 ## Best Practices
 
 **Do:**
-- Use cross-family distillation (e.g., Qwen debate -> LLaMA student) for larger, more consistent gains than same-family
-- Prioritize corrective trajectories — cases where agents initially erred but self-corrected after peer critique — as training data
-- Invest in PRM quality over student size; a high-capacity PRM enables strong improvements even for small (0.6B) students
-- Use the two-stage PRM curriculum (frozen then unfrozen) to prevent catastrophic forgetting of pre-trained features
-- Start with R-SFT as a baseline, then layer on DA and PAD incrementally to measure marginal gains
+- Prioritize corrective trajectories (wrong-to-right pivots) over clean trajectories -- they carry the highest learning signal
+- Use a two-stage PRM training curriculum (frozen backbone then full fine-tune) to prevent catastrophic forgetting
+- Start with R-SFT as a baseline before investing in DA or PAD -- sometimes simple fine-tuning on consensus outputs is sufficient
+- Keep group size >= 4 in GRPO sampling for stable advantage estimation
+- Validate PRM quality independently before using it for policy optimization -- a bad PRM will teach bad reasoning
 
 **Avoid:**
-- Using more than 5 debate agents for small student models (0.6B) — they saturate quickly; larger models benefit modestly up to 20 agents
-- Training only on final answers without intermediate reasoning traces — the reasoning loss is critical for generalization
-- Skipping correctness filtering of debate trajectories — incorrect traces will teach the student wrong reasoning patterns
-- Expecting large gains on tasks requiring factual recall (e.g., MedMCQA) — AgentArk primarily improves reasoning process, not knowledge retrieval
+- Flooding small models with excessive training data -- capacity-limited models degrade with too much supervision; filter aggressively
+- Using only error-free debate paths -- clean trajectories teach the answer but not the self-correction behavior
+- Skipping the feature-alignment stage in PRM training -- training the full model end-to-end from scratch produces unstable reward signals
+- Assuming more debate agents or rounds always helps -- diminishing returns set in quickly, especially for smaller student models
+- Evaluating only final-answer accuracy -- measure reasoning coherence, step decomposition, and self-correction frequency to detect quality regressions
 
 ## Error Handling
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| PRM assigns near-uniform scores | Frozen-stage training too short | Increase Stage I epochs; verify labels are balanced |
-| GRPO training diverges | KL penalty too low or advantage variance too high | Increase beta (KL weight); reduce n_samples_per_prompt |
-| Debate logs have low consensus rate | Too few rounds or agents disagree fundamentally | Increase rounds to 3; use temperature 0.3-0.5 for more focused generation |
-| DA trajectories lack diversity | Teacher LLM extracting similar paths | Explicitly prompt for distinct mathematical identities/logical heuristics in extraction |
-| R-SFT overfits to training set | Small dataset or reasoning traces too homogeneous | Add DA-style augmentation; increase debate dataset size |
-| Out-of-memory during GRPO | G samples * sequence length exceeds VRAM | Reduce n_samples_per_prompt to 4; enable gradient checkpointing and bf16 |
+| Distilled model parrots debate format instead of reasoning | Training data includes raw debate markup (e.g., "Agent 1 says...") | Strip agent identity markers; keep only reasoning content |
+| PRM assigns uniform scores | Stage I training was skipped or too short | Retrain with frozen backbone for at least 1 epoch before unfreezing |
+| GRPO training diverges | Group size too small or learning rate too high | Increase n_samples_per_prompt to 8+, reduce LR by 2-5x |
+| DA model memorizes one solution path | Teacher extracted insufficiently diverse trajectories | Tighten diversity criteria in teacher prompt; require distinct core strategies |
+| Distilled model worse than vanilla SFT | Debate data quality is low (many incorrect consensuses) | Improve correctness filtering; increase debate rounds from 2 to 3 |
+| Self-correction is superficial ("Let me reconsider... same answer") | Training data lacks genuine corrective pivots | Oversample trajectories with measurable reasoning changes between rounds |
 
 ## Limitations
 
-- **Compute-intensive data generation:** Multi-agent debate must run once to produce training data. For large datasets, this is a significant upfront cost (though amortized across all future inferences).
-- **Reasoning over knowledge:** Distillation primarily improves reasoning process quality. Tasks dominated by factual recall (medical QA, trivia) see smaller gains.
-- **PRM training complexity:** PAD requires a separate PRM training pipeline and RL infrastructure (GRPO), which is more complex to set up than standard SFT.
-- **Debate quality ceiling:** The distilled model cannot exceed the reasoning quality of the multi-agent debate that generated its training data. Garbage in, garbage out.
-- **Task transfer:** Models distilled on math reasoning transfer well to other reasoning tasks but may not generalize to fundamentally different domains (e.g., creative writing) without domain-specific debate data.
+- **Requires access to multi-agent debate data**: You need to run the multi-agent system first to generate training data. This is a one-time cost but requires the infrastructure to run N agents.
+- **PRM training needs step-level labels**: PAD requires per-step correctness annotations, which are expensive to produce for non-math domains where correctness is subjective.
+- **Ceiling is the multi-agent system's quality**: The distilled model cannot exceed the reasoning quality of the debate system it learned from. If the multi-agent system makes systematic errors, the distilled model inherits them.
+- **Domain transfer is limited**: A model distilled on math debate data won't automatically self-correct on code review tasks. Distillation is task-family specific.
+- **Small models hit capacity walls**: Models under ~7B parameters show diminishing returns from PAD -- the additional process-aware signal overwhelms their capacity. R-SFT or DA may be the practical ceiling for small models.
 
 ## Reference
 
-**Paper:** [AgentArk: Distilling Multi-Agent Intelligence into a Single LLM Agent](https://arxiv.org/abs/2602.03955v1) — Luo et al., 2026. Focus on Section 3 (the three distillation strategies), Section 4 (PRM and GRPO formulations), and Tables 1-3 (comparative results across strategies, model families, and scales).
+**Paper**: [AgentArk: Distilling Multi-Agent Intelligence into a Single LLM Agent](https://arxiv.org/abs/2602.03955v1) (Luo et al., 2026). Look for: Table 2 comparing R-SFT/DA/PAD across model sizes, Section 4 on PRM training curriculum, and the ablation on corrective vs. clean trajectory selection.
 
-**Code:** [github.com/AIFrontierLab/AgentArk](https://github.com/AIFrontierLab/AgentArk) — Contains inference.py (debate generation), label.py (correctness labeling), prm/ (PRM training), and openrlhf integration (GRPO).
+**Code**: [github.com/AIFrontierLab/AgentArk](https://github.com/AIFrontierLab/AgentArk) -- contains debate configs, PRM training scripts, GRPO integration with OpenRLHF, and evaluation harness.

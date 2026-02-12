@@ -1,215 +1,195 @@
 ---
 name: "swe-master-unleashing-potential-software"
-description: "Systematic software engineering agent workflow inspired by SWE-Master's post-training pipeline. Applies structured exploration, LSP-augmented navigation, multi-turn reasoning with budget awareness, iterative test-driven patching, and self-verification to solve real GitHub issues and complex bugs. Trigger phrases: 'fix this GitHub issue', 'debug this failing test', 'resolve this bug with tests', 'patch this repository issue', 'diagnose and fix this software defect', 'systematic bug resolution'."
+description: >
+  Applies the SWE-Master agentic software engineering methodology to solve complex,
+  multi-file bugs and feature requests. Uses structured trajectory planning, LSP-based
+  semantic code navigation, context-aware budget management, and iterative verification
+  to resolve real-world GitHub issues. Trigger phrases: "fix this GitHub issue",
+  "debug this multi-file bug", "resolve this SWE-bench task", "trace this bug across
+  the codebase", "find and fix this regression", "navigate this codebase semantically".
 ---
 
-# SWE-Master: Systematic Software Engineering Agent Workflow
+# SWE-Master: Structured Agentic Software Engineering
 
-This skill equips Claude with a disciplined, multi-phase workflow for resolving real-world software engineering tasks — bugs, failing tests, and GitHub issues — modeled on the SWE-Master framework (arXiv:2602.03411). The core insight is that effective SWE agents follow a structured trajectory of **explore → localize → hypothesize → patch → validate → verify**, with explicit budget tracking, LSP-guided code navigation, and iterative revision driven by actual test execution feedback. Instead of jumping to a fix, the agent systematically narrows the search space, writes reproducing tests, and only submits patches confirmed by execution.
+This skill equips Claude to tackle complex, real-world software engineering tasks — particularly multi-file bug fixes and feature implementations in large repositories — using the systematic methodology from the SWE-Master framework (arXiv:2602.03411). Instead of ad-hoc grepping and guessing, it applies a disciplined pipeline: semantic code navigation via LSP-style tools, structured exploration trajectories, context-managed long-horizon problem solving, budget-aware turn planning, and iterative test-driven verification. The approach transforms a 6.2% baseline resolve rate into 61.4%+ by replacing lexical search with semantic understanding and unstructured exploration with deliberate trajectory execution.
 
 ## When to Use
 
-- When the user provides a GitHub issue (or description of one) and asks you to produce a fix
-- When a test suite is failing and the user needs the root cause diagnosed and patched
-- When the user says "fix this bug" in a repository with a reproducible failure
-- When tackling multi-file defects that require understanding call chains and dependencies
-- When the user wants a patch validated against both fail-to-pass and pass-to-pass tests
-- When resolving issues in large, unfamiliar codebases where naive grep is insufficient
+- When the user provides a GitHub issue (bug report, feature request, or test failure) and asks you to resolve it in a real codebase
+- When debugging a non-crashing defect where the error context is ambiguous and grep alone cannot locate the root cause
+- When a fix requires tracing definitions, call hierarchies, and references across multiple files and modules
+- When the user asks to "fix this like a SWE agent" or wants a structured, agent-style approach to a complex codebase task
+- When a bug spans multiple layers (e.g., API handler, service logic, database query) and needs coordinated multi-file changes
+- When you need to navigate an unfamiliar large codebase efficiently to understand architecture before making changes
 
 ## Key Technique
 
-SWE-Master's core contribution is demonstrating that a structured agent trajectory — not just a powerful model — is what makes SWE tasks solvable. The pipeline decomposes issue resolution into distinct phases: **repository exploration** (understanding project structure and conventions), **fault localization** (narrowing to the exact functions and lines involved), **patch generation** (minimal, targeted edits), and **execution-based verification** (running real tests in the environment). Each phase feeds the next; the agent never skips ahead to editing without first building a mental model of the relevant code paths.
+**Semantic Navigation over Lexical Search.** The core insight of SWE-Master is that traditional agent approaches relying on `grep` and `find` hit a wall on non-crashing, ambiguous bugs. These tools return noisy results, miss semantic relationships, and waste interaction turns scrolling through irrelevant matches. SWE-Master replaces this with LSP-style semantic navigation: go-to-definition, find-references, call-hierarchy analysis, and workspace symbol search. This mirrors how a human developer uses an IDE — jumping to definitions, tracing callers, and understanding type hierarchies — rather than reading files linearly. In practice, this reduces resolution steps by ~37% and input tokens by ~24%.
 
-Two techniques from the paper are directly actionable. First, **LSP-augmented navigation**: instead of relying solely on text search, the agent uses semantic tools — go-to-definition, find-references, call-hierarchy analysis — to trace how code flows through a repository. This dramatically reduces wasted exploration turns and catches non-obvious dependencies (e.g., a method override three inheritance levels deep). Second, **budget-aware reasoning**: the agent explicitly tracks how many interaction steps remain and adjusts strategy accordingly — exploring broadly early on and converging to targeted edits as the budget shrinks.
+**Structured Trajectory with Budget Awareness.** Rather than open-ended exploration, SWE-Master operates with explicit turn budgets and a phased approach: reproduce the issue, localize the fault, understand the context, implement the fix, and verify. The agent receives remaining-budget signals at each step, enabling it to switch from exploration to exploitation when turns are scarce. This prevents the common failure mode where an agent exhausts its context exploring tangents without ever attempting a fix.
 
-The verification phase uses **test-driven confirmation**: the agent writes or identifies a test that reproduces the bug *before* patching, then confirms the patch makes that test pass while keeping existing tests green. When multiple candidate patches exist, the agent can generate parallel attempts and select the one with the best test outcome — a form of test-time scaling that the paper shows boosts resolve rates from 61.4% to 70.8%.
+**Context Management via Summarization.** Long-horizon tasks (50-150 turns) overflow context windows. SWE-Master uses a hybrid strategy: recent interactions are kept verbatim in a sliding window, while older interactions are compressed into natural language summaries. This prevents both context explosion (appending everything) and amnesia (discarding old state), maintaining a coherent working memory throughout the session.
 
 ## Step-by-Step Workflow
 
-1. **Parse the issue into structured requirements.** Extract: (a) the expected behavior, (b) the observed (buggy) behavior, (c) any reproduction steps, (d) affected files or modules if mentioned, and (e) the relevant test commands. Write these down explicitly before doing anything else.
+1. **Parse the issue into a structured problem statement.** Extract the bug description, reproduction steps, expected vs. actual behavior, affected files or modules (if mentioned), and any stack traces or error messages. Formulate a one-sentence hypothesis of the root cause category (logic error, missing validation, incorrect API usage, etc.).
 
-2. **Explore repository structure.** Use `ls`, directory listing, and file globbing to understand the project layout — source directories, test directories, configuration files, and build system. Identify the language, framework, and testing tool (pytest, jest, cargo test, etc.).
+2. **Reproduce or confirm the failure.** If tests are available, run the specific failing test(s) to confirm the issue exists and capture the exact error output. If no test exists, attempt to construct a minimal reproduction from the issue description. Record the precise failure signature (exception type, assertion message, incorrect output value).
 
-3. **Localize the fault using semantic navigation.** Start from the symptom (error message, failing test, or user-reported behavior) and trace inward. Use grep/ripgrep to find the error string or relevant function name, then follow the call chain: read the function, find its callers (find-references pattern), read those callers, and repeat until you reach the root cause. Prefer reading definitions over guessing. For each file you examine, note the file path and line numbers.
+3. **Localize the fault using semantic navigation, not grep.** Start from the failure point (test file, error location, or entry point mentioned in the issue). Use go-to-definition to trace the call chain from the failure to the implementation. Use find-references to understand all callers of suspicious functions. Use workspace-symbol search to locate relevant classes or functions by name when the entry point is ambiguous. Prefer definition-tracing over text search — follow the code's own import/call structure.
 
-4. **Build a fault hypothesis.** Before editing anything, write a clear 1-3 sentence explanation of *why* the bug occurs. Include: which function is wrong, what it does incorrectly, and what the correct behavior should be. If you are uncertain, identify what additional information would confirm or refute the hypothesis and gather it.
+4. **Map the affected code region.** Once you identify the suspicious function or module, read it in full context. Check its callers (incoming calls), its dependencies (outgoing calls), and related test files. Build a mental map of the 2-5 files that are relevant to the fix. Document this map explicitly before proceeding.
 
-5. **Write or identify a reproducing test.** If the issue includes a reproduction script, verify it fails. If not, write a minimal test case that demonstrates the buggy behavior. Run it and confirm it fails with the expected error. This is your fail-to-pass (F2P) test.
+5. **Formulate a precise fix hypothesis.** Based on the localization, state exactly what needs to change and why. Identify whether the fix is: (a) a logic correction in a single function, (b) a missing edge-case handler, (c) an incorrect API call or argument, (d) a type/interface mismatch, or (e) a multi-site coordinated change. If multi-site, list all locations.
 
-6. **Generate a minimal patch.** Edit only the code necessary to fix the root cause. Prefer the smallest change that addresses the issue — do not refactor surrounding code, add unrelated improvements, or change formatting. If the fix requires changes in multiple files, make each edit deliberately and explain its purpose.
+6. **Implement the minimal correct fix.** Make the smallest change that resolves the issue. Do not refactor surrounding code, add unrelated improvements, or change formatting. For multi-file fixes, make changes in dependency order (deepest dependency first). After each edit, verify the file is syntactically valid.
 
-7. **Validate the patch against the reproducing test.** Run the F2P test and confirm it now passes. If it still fails, revise the hypothesis (step 4) and iterate. Do not proceed until the reproducing test passes.
+7. **Verify the fix by running tests.** Re-run the originally failing test(s) to confirm they now pass. Run the broader test suite for the affected module to check for regressions. If no tests exist, create a minimal test that captures the bug and verify it passes with your fix.
 
-8. **Run the full relevant test suite (pass-to-pass check).** Execute the broader test suite for the affected module to ensure the patch does not introduce regressions. If any previously passing tests now fail, diagnose whether the patch caused the regression or whether the failure is pre-existing/flaky.
+8. **Validate no regressions in related code.** Check that your fix doesn't break callers or dependents by running related test files. If the fix changes a public API or shared utility, verify all references still work. Use find-references to enumerate potential impact sites.
 
-9. **Review the final diff for correctness and minimality.** Read through every changed line. Verify: no debug prints left behind, no unintended whitespace changes, no accidentally deleted code, and the patch is consistent with the project's coding conventions.
-
-10. **Report the resolution.** Summarize: what the root cause was, what the fix does, which tests confirm it, and any edge cases or follow-up items the user should be aware of.
+9. **Summarize the resolution.** Document what the root cause was, what was changed, and why, in a concise format suitable for a PR description. Include the specific files modified and the test results.
 
 ## Concrete Examples
 
-**Example 1: Fixing a Django ORM query bug**
+**Example 1: Fixing a non-crashing data transformation bug**
 
 ```
-User: "Fix this issue — QuerySet.annotate() with a Subquery containing OuterRef
-raises FieldError when used with .values(). See django/django#34567."
+User: Fix this issue — pandas DataFrame.groupby().transform() returns
+wrong values when the transform function returns a scalar and the
+group has mixed dtypes in other columns.
 
 Approach:
-1. Parse issue: annotate() + Subquery + OuterRef + values() triggers FieldError.
-   Expected: query executes normally. Observed: FieldError on column resolution.
+1. Parse issue: transform() returns incorrect values; trigger condition
+   is scalar return + mixed dtypes in non-grouped columns.
+2. Reproduce: Write a test with a DataFrame having mixed-dtype columns,
+   group by one column, and apply a scalar-returning transform. Confirm
+   the output values are wrong.
+3. Localize semantically: Go to definition of DataFrame.transform() →
+   trace into groupby/generic.py → find the _transform_fast path →
+   identify where scalar results are broadcast back to the group.
+4. Map: groupby/generic.py (transform dispatch), groupby/ops.py
+   (fast-path aggregation), core/dtypes/cast.py (dtype coercion).
+5. Hypothesis: The fast path incorrectly coerces the scalar result
+   through a dtype-sensitive code path that assumes homogeneous dtypes.
+6. Fix: Add a dtype check before the fast path; fall back to the
+   slow path when mixed dtypes are detected in the frame.
+7. Verify: Original repro test passes. Existing groupby test suite
+   passes (847 tests, 0 failures).
+8. Regression check: find-references on _transform_fast confirms
+   no other callers are affected.
 
-2. Explore: ls django/db/models/ — find query.py, sql/query.py, expressions.py,
-   subqueries.py. Test dir: tests/annotations/.
-
-3. Localize: grep for "FieldError" in django/db/models/sql/query.py. Find that
-   resolve_expression() in Subquery fails to propagate outer references when
-   the parent queryset uses .values(). Trace: values() calls set_values() →
-   which modifies selected columns → resolve_expression() can't find the
-   OuterRef target because it looks only in the narrowed column set.
-
-4. Hypothesis: set_values() strips columns from the outer query's annotation
-   mask before Subquery.resolve_expression() runs, so OuterRef resolution
-   fails because the referenced field is no longer visible.
-
-5. Reproducing test: Write test in tests/annotations/tests.py:
-   qs = Book.objects.values('title').annotate(
-       latest_rating=Subquery(
-           Rating.objects.filter(book=OuterRef('pk')).order_by('-created')
-           .values('score')[:1]
-       )
-   )
-   list(qs)  # Should not raise FieldError
-
-6. Patch: In django/db/models/sql/query.py, modify set_values() to preserve
-   fields referenced by OuterRef in annotations before narrowing the mask.
-   ~5 line change.
-
-7. Run reproducing test → passes.
-8. Run tests/annotations/ full suite → all green.
-9. Diff review: only query.py changed, minimal edit.
-
-Output: Root cause was premature column narrowing in set_values() hiding
-OuterRef targets from Subquery resolution. Fix preserves outer-referenced
-fields in the annotation mask. Confirmed by new test and full annotation
-suite passing.
+Output:
+- Modified: pandas/core/groupby/generic.py (lines 412-418)
+- Root cause: _transform_fast assumed uniform dtypes across all columns
+- Fix: Added dtype homogeneity check, routing mixed-dtype frames
+  through _transform_general instead
+- Tests: All 847 groupby tests pass; added 1 new regression test
 ```
 
-**Example 2: Debugging a race condition in a Python async library**
+**Example 2: Resolving a cross-module import/configuration issue**
 
 ```
-User: "Our aiohttp middleware sometimes returns a 500 with 'RuntimeError:
-Response already started'. Can you find and fix it?"
+User: After upgrading Django, our custom middleware is silently
+not executing. No errors, just skipped. Issue #4521.
 
 Approach:
-1. Parse: intermittent 500, RuntimeError on response already started.
-   Likely a double-write or missing await causing concurrent response writes.
+1. Parse issue: Middleware exists but doesn't run post-upgrade. No
+   error (non-crashing defect — exactly the ambiguous context where
+   semantic navigation excels over grep).
+2. Reproduce: Run request through the middleware stack, confirm via
+   logging that the custom middleware's __call__ is never invoked.
+3. Localize: Go to definition of the middleware class → check its
+   __init__ signature → trace Django's middleware loading in
+   django/core/handlers/base.py → find adapt_method_mode() which
+   inspects middleware signatures to determine sync/async handling.
+4. Map: our_app/middleware.py, django/core/handlers/base.py,
+   django/utils/deprecation.py (MiddlewareMixin).
+5. Hypothesis: Django upgrade changed middleware detection logic;
+   our middleware lacks the expected method signature for the new
+   sync/async adaptation layer.
+6. Fix: Update middleware class to inherit from MiddlewareMixin
+   (which provides the expected __call__ protocol) or add the
+   explicit __acall__ method for async compatibility.
+7. Verify: Request now passes through middleware. Middleware test
+   suite passes.
 
-2. Explore: ls src/middleware/ — find auth.py, logging.py, error_handler.py.
-   Test dir: tests/middleware/.
-
-3. Localize: grep "Response already started" in aiohttp source to understand
-   when it's raised (in StreamResponse.prepare()). Then search the middleware
-   chain for places where response.write() or response.prepare() is called.
-   Find that error_handler.py calls response.prepare() in the except block
-   but doesn't check if the response was already prepared by a downstream
-   handler.
-
-4. Hypothesis: When a downstream handler starts the response (calls prepare())
-   and then raises an exception, the error_handler middleware tries to
-   prepare() a new error response on the same StreamResponse object, which
-   is already started.
-
-5. Reproducing test: Write test that has a handler which calls
-   response.prepare(), writes partial data, then raises ValueError.
-   Assert the middleware returns 500 without RuntimeError.
-
-6. Patch: In error_handler.py, add a guard:
-   if not response.prepared:
-       await response.prepare(request)
-       await response.write(error_body)
-   else:
-       # Response already started; log and let aiohttp close it
-       logger.warning("Cannot send error response: already started")
-   ~6 line change.
-
-7. Reproducing test → passes (no RuntimeError).
-8. Full middleware test suite → all green.
-
-Output: The error_handler middleware didn't check response.prepared before
-attempting to send an error response. Added a guard that skips error writing
-when the response stream is already open. Test confirms no RuntimeError.
+Output:
+- Modified: our_app/middleware.py (added MiddlewareMixin inheritance)
+- Root cause: Django 4.x middleware adapter requires explicit
+  sync/async protocol; plain classes are silently skipped
+- Fix: Inherit from MiddlewareMixin to provide correct __call__
+- Tests: 12/12 middleware tests pass, full integration suite green
 ```
 
-**Example 3: Multi-file type error in a TypeScript project**
+**Example 3: Budget-aware resolution of a complex test failure**
 
 ```
-User: "After upgrading to TypeScript 5.3, our build fails with 'TS2345:
-Argument of type X is not assignable to parameter of type Y' in
-src/api/client.ts. Fix the type errors without changing runtime behavior."
+User: The CI is failing on test_serialize_nested_generic_types.
+I have no idea where to start — the codebase is huge.
 
 Approach:
-1. Parse: TS2345 after upgrade, in src/api/client.ts. Need type-only fix,
-   no runtime changes.
+1. Parse: Single test failure, unknown location in large codebase.
+   Budget: allocate ~30% of effort to localization, ~20% to
+   understanding, ~30% to fix, ~20% to verification.
+2. Reproduce: Run the specific test, capture the assertion error —
+   it expects a serialized dict but gets None.
+3. Localize (budget-aware — use semantic tools, not grep):
+   - Go to the test definition, read the setup and assertion
+   - Go to definition of the serialize() function under test
+   - Trace into the type-dispatch logic for generic types
+   - Use find-references on the GenericSerializer class to
+     understand registration
+   - Identify that nested generics (e.g., List[Optional[int]])
+     hit an unhandled branch returning None
+4. Map: tests/test_serialize.py, core/serializers/dispatch.py,
+   core/serializers/generic.py (3 files total).
+5. Fix: Add recursive handling for nested generic type arguments
+   in the dispatch function.
+6. Verify: Failing test now passes. Run full serializer test suite
+   (203 tests) — all green.
 
-2. Explore: ls src/api/ — find client.ts, types.ts, endpoints/. Check
-   tsconfig.json for strictness settings. Run tsc --noEmit to get full
-   error list.
-
-3. Localize: Read the exact error lines in client.ts. The function
-   fetchEndpoint<T>() returns Promise<T>, but the caller passes the result
-   to a function expecting Promise<ApiResponse<T>>. In TS 5.3, stricter
-   variance checking catches this mismatch that was previously allowed.
-
-4. Hypothesis: fetchEndpoint's return type generic T was implicitly widened
-   in TS 5.2 but TS 5.3 enforces the declared variance. The fix is to
-   make fetchEndpoint return Promise<ApiResponse<T>> explicitly, matching
-   what it actually returns at runtime.
-
-5. Verification: read fetchEndpoint implementation — it does return
-   ApiResponse<T> at runtime, confirming the type annotation is wrong,
-   not the runtime code.
-
-6. Patch: In client.ts, change return type from Promise<T> to
-   Promise<ApiResponse<T>>. Update 2 call sites in endpoints/ that
-   destructure the result (they already expect ApiResponse shape, just
-   need type annotations updated).
-
-7. Run tsc --noEmit → zero errors.
-8. Run npm test → all tests pass, no runtime changes.
-
-Output: TS 5.3's stricter generic variance exposed an incorrect return type
-on fetchEndpoint(). Fixed the type annotation to match the actual runtime
-return type (ApiResponse<T>). No runtime behavior changed. Build and tests
-pass clean.
+Output:
+- Modified: core/serializers/dispatch.py (lines 89-97)
+- Root cause: Type dispatch unwrapped one level of generic args
+  but not nested generics
+- Fix: Recursive unwrap of typing.get_args() for nested generics
+- Tests: 203/203 serializer tests pass
 ```
 
 ## Best Practices
 
-- **Do:** Always read the code before editing it. Trace the call chain from symptom to root cause — never guess at the fix based on the error message alone.
-- **Do:** Write or identify a failing test *before* writing the patch. This prevents false confidence from patches that don't actually address the issue.
-- **Do:** Track your remaining budget explicitly. If you've spent 70% of your turns exploring without a clear hypothesis, switch strategy: narrow your focus to the most probable location and test a hypothesis directly.
-- **Do:** Make the smallest possible patch. Each additional changed line is an additional risk of regression. If you can fix the bug by changing one condition, don't also refactor the function.
-- **Avoid:** Jumping to `str_replace` edits before understanding the surrounding code. Context matters — a fix that looks correct in isolation may break an invariant relied upon elsewhere.
-- **Avoid:** Running the entire project test suite on every iteration. Run the specific relevant test file first; only run the broader suite once you believe the fix is complete.
-- **Avoid:** Ignoring test failures that seem "unrelated." Verify they are genuinely pre-existing by checking if they fail on the unmodified code before dismissing them.
+**Do:**
+- Always start from the failure point and trace inward using definition/reference chains — never start by reading random files
+- Use go-to-definition and find-references as your primary navigation tools; reserve grep/find for string literals, config values, and error messages that aren't function names
+- Keep an explicit mental map of the 2-5 relevant files before attempting any edit
+- Track your remaining budget (turns, context) and switch from exploration to action when ~40% remains
+- Verify fixes with the specific failing test first, then expand to the module test suite
+- Compress your understanding of explored-but-irrelevant code into a one-line summary and move on
+
+**Avoid:**
+- Do not grep for function names when you can go-to-definition — grep returns all string matches including comments, documentation, and unrelated code
+- Do not read entire large files top-to-bottom; use document-symbols to get the structure, then read specific functions
+- Do not attempt a fix before confirming you can reproduce the failure — you need a verification signal
+- Do not make speculative multi-site changes without first mapping all affected locations via find-references
+- Do not exhaust your context exploring tangential code paths; set a localization budget and stick to it
 
 ## Error Handling
 
-- **Hypothesis is wrong (test still fails after patch):** Do not iterate on the same patch blindly. Re-examine the fault localization. Read the test output carefully — the failure mode may have changed, pointing to a different root cause.
-- **Patch introduces regressions:** Read the failing test to understand what behavior it asserts. Trace how your change affects that code path. Often the regression reveals an assumption you missed — incorporate that into a revised patch.
-- **Cannot reproduce the bug:** Ask the user for exact reproduction steps, environment details, and dependency versions. If the bug is environment-specific, focus on understanding the environmental difference rather than guessing at code changes.
-- **Repository is too large to explore exhaustively:** Use semantic search strategies — start from the error message, trace to the raising function, follow its callers. Avoid breadth-first exploration of unrelated modules. LSP-style navigation (go-to-definition, find-references) is far more efficient than grep for understanding call chains.
-- **Test suite is slow or flaky:** Isolate the specific test file or test case relevant to the bug. Run only that test during iteration. Flag flaky tests to the user but do not attempt to fix them unless asked.
+- **Cannot reproduce the issue:** Check if the issue requires specific environment setup, data fixtures, or configuration. Look for setup instructions in the test file or conftest. If still unreproducible, state this clearly and ask for reproduction steps.
+- **Semantic navigation tools unavailable:** Fall back to structured grep patterns — search for `def function_name`, `class ClassName`, and `import` statements. Use file structure (directory names, `__init__.py` exports) as a secondary navigation aid.
+- **Fix passes the target test but breaks others:** Your change likely violated an assumption made by other callers. Use find-references to enumerate all callers, understand the broken test's expectation, and adjust your fix to satisfy both constraints. Avoid special-casing.
+- **Context window approaching limit on long investigations:** Summarize your findings so far (files mapped, hypothesis formed, changes planned) and continue from that summary. Prioritize executing the fix over further exploration.
+- **Multiple plausible root causes identified:** Rank by proximity to the failure point. Fix the most proximate cause first and re-test. Deeper causes often resolve themselves or become clearer after the proximate fix.
 
 ## Limitations
 
-- This workflow assumes the project has a runnable test suite. If there are no tests and no way to execute the code, verification falls back to code review only, which is less reliable.
-- For bugs that require deep domain knowledge (cryptographic protocols, database internals, kernel behavior), the explore-localize-patch loop still works, but hypothesis quality depends on the agent's domain understanding.
-- Race conditions and concurrency bugs may not reproduce deterministically. The workflow helps structure the investigation, but the reproducing test may need to use stress-testing or mocking to trigger the bug reliably.
-- This approach is optimized for "fix this specific bug" tasks. For open-ended feature requests or large-scale refactors, a planning-first workflow is more appropriate.
-- The parallel test-time scaling strategy (generating multiple candidate patches and selecting the best) is a conceptual guide — in practice, Claude generates one trajectory per conversation, so the "multiple attempts" pattern requires the user to request retries or the agent to try alternative approaches sequentially.
+- This methodology is optimized for bug fixes and localized feature additions in existing codebases. It is less applicable to greenfield development or large-scale architectural redesigns.
+- Semantic navigation (go-to-definition, find-references) requires that the codebase has reasonable structure — heavily metaprogrammed or dynamically-generated code may not resolve through static analysis.
+- The budget-aware approach assumes a finite interaction horizon. For truly open-ended exploratory tasks with no clear acceptance criteria, the phased structure may feel overly rigid.
+- Test-driven verification requires that the project has a working test infrastructure. In codebases without tests, verification must rely on manual inspection or ad-hoc scripts.
+- The approach achieves its best results on Python codebases (where SWE-bench is evaluated). The principles transfer to other languages, but tool availability and navigation quality may vary.
 
 ## Reference
 
-- **Paper:** [SWE-Master: Unleashing the Potential of Software Engineering Agents via Post-Training](https://arxiv.org/abs/2602.03411v1) — Song et al., 2026. Look for: the trajectory format (Thought + Action pairs), the LSP tool integration for semantic navigation, the budget-aware prompting strategy, the GRPO reward shaping (binary outcome + forced-submission penalty), and the SWE-World verifier for selecting among candidate patches.
-- **Code:** [github.com/RUCAIBox/SWE-Master](https://github.com/RUCAIBox/SWE-Master)
+**Paper:** [SWE-Master: Unleashing the Potential of Software Engineering Agents via Post-Training](https://arxiv.org/abs/2602.03411v1) — Song et al., 2026. Look for: Section 3 (inference framework and LSP tool design), Section 4 (trajectory synthesis and difficulty-based filtering), Section 5 (RL with forced submission and clip-higher GRPO), and Section 6.5 (summary-based context management). Code: [github.com/RUCAIBox/SWE-Master](https://github.com/RUCAIBox/SWE-Master).
