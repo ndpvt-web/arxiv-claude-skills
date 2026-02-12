@@ -1,161 +1,147 @@
 ---
-name: "textual-equilibrium-propagation-deep"
-description: "Optimize deep compound AI pipelines using Textual Equilibrium Propagation (TEP) -- a two-phase local learning framework that replaces brittle global textual backpropagation with equilibrium-seeking local critics and nudged contrastive updates. Use when: 'optimize my multi-step LLM pipeline', 'my agent chain is losing quality at depth', 'improve my compound AI system', 'fix degrading feedback in my prompt chain', 'textual gradient optimization', 'TEP for agentic workflows'."
+name: textual-equilibrium-propagation-deep
+description: >
+  Optimize deep multi-step AI pipelines using Textual Equilibrium Propagation (TEP) — a two-phase
+  local-then-nudge strategy that avoids gradient explosion/vanishing in long prompt chains.
+  Use when: "optimize my multi-agent pipeline", "fix my prompt chain that degrades at depth",
+  "improve my compound AI system", "TEP optimization", "local critic refinement for agents",
+  "scale my LLM workflow without losing quality".
 ---
 
 # Textual Equilibrium Propagation for Deep Compound AI Systems
 
-This skill enables Claude to design, optimize, and debug deep compound AI systems -- multi-module LLM pipelines where retrievers, generators, verifiers, and tools are chained together. It applies Textual Equilibrium Propagation (TEP), which replaces fragile global textual backpropagation (as in TextGrad) with a two-phase local optimization: a **free phase** where local critics refine each module's prompt until equilibrium, and a **nudged phase** where bounded task-level signals propagate forward to produce contrastive updates. TEP maintains stable performance as pipeline depth grows, unlike global methods that suffer exploding or vanishing textual gradients.
+This skill enables Claude to design, optimize, and debug deep compound AI systems — multi-step LLM pipelines where each stage feeds into the next (retrieval, reasoning, code generation, verification, etc.). It applies Textual Equilibrium Propagation (TEP), a technique from Chen et al. (ICLR 2026) that replaces fragile global feedback chains with a two-phase approach: first, each module self-improves via a local LLM critic until stable (free phase), then receives minimal task-aligned nudges propagated forward (nudged phase). This prevents the twin failures of deep prompt optimization — feedback that explodes in length or vanishes in specificity — and scales to 5x+ pipeline depth where global methods like TextGrad collapse.
 
 ## When to Use
 
-- When the user has a multi-step LLM pipeline (3+ chained modules) and wants to optimize prompts end-to-end
-- When a compound AI system degrades in quality as more modules are added (depth-scaling failure)
-- When textual feedback from a final evaluator becomes too long, generic, or unstable when propagated backward through many modules
-- When building agentic workflows with retrieval -> reasoning -> code generation -> verification chains
-- When the user asks to "optimize" or "improve" a multi-agent or multi-prompt pipeline
-- When debugging why a deep prompt chain produces worse results than its individual components
-- When designing a new compound AI system that needs to be optimizable from the start
+- When the user has a multi-step LLM pipeline (3+ stages) and wants to optimize prompts across stages without manual tuning
+- When a compound AI system degrades in quality as depth increases (e.g., a 5-stage agent chain performs worse than a 3-stage one)
+- When global feedback propagation (TextGrad-style) produces bloated or vague optimization signals
+- When building retrieval-augmented generation pipelines, multi-agent tool-use workflows, or code generation pipelines with analysis/generation/testing/refinement stages
+- When the user wants to add self-critique loops to individual agents in a pipeline without destabilizing the whole system
+- When optimizing agentic workflows where each agent's prompt needs tuning but agents are black-box LLM calls
 
 ## Key Technique
 
-**The Problem with Global Textual Backpropagation:** Approaches like TextGrad compute a loss at the final output, then propagate textual feedback backward through every module. This fails at depth for two reasons: (1) **Exploding textual gradients** -- feedback message length grows exponentially as `B(g) >= c * gamma^k` (gamma > 1), overflowing context windows and amplifying evaluation biases; (2) **Vanishing textual gradients** -- specificity decays as `S(g) <= C * alpha^k` (alpha in (0,1)), where actionable corrections like "fix the date format in step 3" degrade into useless generic suggestions like "improve accuracy" after passing through several modules.
+**The Problem with Global Textual Backpropagation:** Methods like TextGrad treat LLM pipelines like neural networks and backpropagate textual feedback from the final output through every upstream module. This works for shallow pipelines (2-3 steps) but fails at depth. Feedback token count grows exponentially (~2.2x per additional stage), and when compressed to fit context windows, the feedback loses specificity — downstream update success rates drop from 36% to 5% at 5x scale.
 
-**TEP's Two-Phase Solution:** Instead of global backprop, TEP optimizes each module locally using two alternating phases. In the **free phase**, a local LLM critic evaluates each module's output on structured quality metrics (structural clarity, specification completeness, internal consistency, context integration, reasoning transparency, format compliance) and suggests improvements. The module iterates until the critic's scores stabilize (variance across 3 consecutive evaluations < 0.5) or a maximum iteration cap is reached. In the **nudged phase**, the system injects task-level ground truth or objective signals at the output, then runs the pipeline forward again with these clamped targets. Each module compares its free-phase output against its nudged-phase output to produce a **contrastive update** -- the textual diff between "what I produced on my own" and "what I should have produced given the correct answer." This contrastive signal is local, bounded, and does not degrade with depth.
+**TEP's Two-Phase Solution:** Inspired by Equilibrium Propagation from energy-based models, TEP decouples optimization into local and global concerns. In the **free phase**, each node in the pipeline gets its own LLM critic that iteratively evaluates and refines the node's prompt/output against six quality dimensions (structural clarity, completeness, consistency, context integration, reasoning transparency, format compliance) until scores stabilize — this is "equilibrium." In the **nudged phase**, small task-aligned edits are applied to each node's prompt using the actual task objective (e.g., final answer accuracy), propagated via forward signaling rather than backward chains. A nudge strength parameter beta (annealed by 0.9x per iteration) bounds how much each edit can change, preventing oscillation. The result: stable token costs across depth, consistent 33-37% update success rates even at 5x scale, and accuracy gains that grow with depth.
 
-**Why It Scales:** TEP's nudge strength parameter beta decays geometrically (beta <- beta * 0.9 per round), starting with strong coordination and transitioning to fine-tuning. Every update is validated: edits that reduce performance on a held-out set are rejected. This makes TEP monotonically non-degrading. On benchmarks, TEP improved HotpotQA F1 from 24.86 (TextGrad) to 48.72, and maintained stable token complexity at pipeline scale 5 while TextGrad's feedback ballooned from 2K to 32K+ tokens.
+**Why It Works in Practice:** Each module optimizes itself locally first, reaching a solid baseline without depending on noisy global signals. The nudged phase then makes surgical adjustments to align local optima with the global objective. This means you can add pipeline depth without degrading optimization quality — the opposite of TextGrad's behavior.
 
 ## Step-by-Step Workflow
 
-1. **Map the pipeline graph.** Enumerate every module (node) in the compound AI system and its connections. Label each node with its role: retriever, generator, verifier, code-writer, tool-caller, etc. Identify the depth (longest path from input to output).
+1. **Map the pipeline as a computation graph.** Identify every LLM call, tool invocation, and data transform as a node. Draw directed edges showing data flow. Label each node as stochastic (LLM call with tunable prompt) or deterministic (tool, database query, formatter). Only stochastic nodes get optimized.
 
-2. **Define local critic metrics for each node.** For every module, create a structured evaluation rubric with 6 task-independent dimensions (scored 1-5): Structural Clarity, Specification Completeness, Internal Consistency, Context Integration, Reasoning Transparency, Format Compliance. Add 2-3 task-dependent criteria specific to the module's role (e.g., "retrieval recall" for a retriever, "code correctness" for a code generator).
+2. **Define the task-level objective.** Specify a measurable evaluation function for the pipeline's final output — accuracy, F1, pass@1, MRR, or a rubric-based score. This is the global signal used in the nudged phase. Make it concrete and automatable.
 
-3. **Initialize module prompts.** Write an initial system prompt for each module. Keep prompts modular -- each module should have a clear input schema and output schema so that local optimization doesn't break inter-module contracts.
+3. **Attach a local critic to each stochastic node.** For each LLM node, create a critic prompt that evaluates the node's output on six dimensions scored 1-5: structural clarity (weight 0.20), specification completeness (0.20), internal consistency (0.15), context integration (0.15), reasoning transparency (0.15), and format compliance (0.15). The critic outputs a JSON with scores, actionable feedback, and an overall weighted score.
 
-4. **Run the free phase per module.** For each module independently: (a) generate output from current prompt, (b) have the local critic score it on all metrics and produce actionable feedback, (c) revise the prompt incorporating the feedback, (d) repeat until score variance across 3 consecutive evaluations < 0.5, or until 20 iterations. Use temperature sampling uniformly in [0.3, 0.9] across iterations.
+4. **Run the free phase: local self-refinement to equilibrium.** For each stochastic node independently (parallelizable), loop: generate output, have the critic evaluate it, apply suggested improvements to the prompt, regenerate. Stop when score variance across 3 consecutive evaluations falls below 0.5, when feedback becomes stylistic rather than functional, or after 20 iterations max. This produces locally-optimized prompts.
 
-5. **Run the full pipeline forward (free-phase equilibrium).** Execute the entire pipeline end-to-end with the locally-optimized prompts. Record the output at every module -- these are the free-phase activations.
+5. **Evaluate the full pipeline end-to-end.** Run the pipeline with all locally-optimized prompts on a sample of task instances. Compute the task-level objective. This is the baseline that the nudged phase will improve upon.
 
-6. **Inject nudged signals.** Clamp the final output to the ground-truth or objective target. Run the pipeline forward again, but now each module receives its predecessor's nudged output instead of free output. Record these nudged-phase activations at every module.
+6. **Run the nudged phase: task-aligned forward nudges.** For each stochastic node, generate a minimal prompt edit ("nudge") that aligns the node's behavior with the global task objective. Start with nudge strength beta > 0 and anneal by 0.9x each outer iteration. The nudge is a specific, bounded text edit — not a rewrite. Apply it, re-run the pipeline forward, and check if the global objective improves.
 
-7. **Compute contrastive updates.** For each module, compare its free-phase output to its nudged-phase output. Generate a textual diff: "In the free phase you produced X, but the correct pipeline produced Y. The key differences are [specific, bounded list]." Use this diff to revise the module's prompt with proximal edits only -- changes must be minimal and specific, not wholesale rewrites.
+7. **Iterate nudge-then-evaluate until convergence.** Repeat the nudged phase for up to 40 iterations or until the global objective plateaus. Each iteration: apply nudges, run forward, measure, anneal beta. Track which nodes' nudges improved vs. degraded performance.
 
-8. **Validate and accept/reject.** Test each proposed prompt edit against a small validation set. Only accept edits that do not reduce validation performance. This ensures monotonic non-degradation.
+8. **Validate on held-out data.** Test the final optimized prompts on examples not used during optimization. Compare against the pre-optimization baseline and any global-optimization baseline (TextGrad, DSPy) if available.
 
-9. **Decay nudge strength and iterate.** Multiply beta by 0.9 and repeat from step 5. Early rounds make large structural corrections; later rounds fine-tune. Stop when validation performance plateaus across 3 consecutive rounds.
-
-10. **Export optimized prompts.** Freeze the final prompts for each module. Document the critic rubrics alongside each prompt so the system can be re-optimized when requirements change.
+9. **Export the optimized prompt set.** Save each node's final prompt as a versioned artifact. Document which nodes changed most and what the critics focused on — this is diagnostic gold for future pipeline debugging.
 
 ## Concrete Examples
 
 **Example 1: Optimizing a Multi-Hop QA Pipeline**
 
-User: "I have a 4-module pipeline for answering complex questions: Query Decomposer -> Retriever -> Evidence Synthesizer -> Answer Generator. Quality drops badly when I chain all 4 together. Help me optimize it."
+User: "I have a 4-stage pipeline for HotpotQA: query decomposition -> sub-question retrieval -> evidence synthesis -> answer generation. Accuracy drops when I add more decomposition depth. Help me optimize it with TEP."
 
 Approach:
-1. Map the pipeline: 4 nodes, depth 4, linear chain.
-2. Define local critics:
-   - Query Decomposer: clarity of sub-questions, coverage of original query, no redundancy
-   - Retriever: passage relevance, diversity, recall of key entities
-   - Evidence Synthesizer: faithful summarization, no hallucinated claims, covers all sub-questions
-   - Answer Generator: correctness, conciseness, cites evidence
-3. Run free phase on each module independently using 10 sample questions, iterating prompts until critic scores stabilize.
-4. Run full pipeline forward, record all intermediate outputs.
-5. Clamp Answer Generator output to gold answers. Re-run pipeline forward with clamped targets flowing backward as context.
-6. For each module, generate contrastive update:
-   ```
-   Evidence Synthesizer contrastive diff:
-   Free phase: "The study was conducted in 2019 and found positive results."
-   Nudged phase: "The 2019 RCT by Smith et al. (n=500) found 23% improvement (p<0.01)."
-   Key gap: Free phase drops specific figures and citations. Add to prompt:
-   "Always include author names, sample sizes, and statistical significance."
-   ```
-7. Validate each edit, accept only improvements, decay beta, repeat 5 rounds.
+1. Map the 4 nodes: Decomposer (stochastic), Retriever (deterministic), Synthesizer (stochastic), Answerer (stochastic)
+2. Task objective: F1 score on final answers
+3. Attach critics to Decomposer, Synthesizer, Answerer. Example critic prompt for Decomposer:
 
-Output: Optimized prompts for all 4 modules with documented critic rubrics. Expected: significant F1 improvement at depth 4, stable feedback token counts.
+```
+You are a critic evaluating a query decomposition module.
+Given the original question and the generated sub-questions, score on:
+- Structural Clarity (1-5): Are sub-questions logically ordered?
+- Completeness (1-5): Do sub-questions cover all information needed?
+- Consistency (1-5): Do sub-questions avoid redundancy/contradiction?
+- Context Integration (1-5): Does decomposition use entity/relation cues from the question?
+- Reasoning Transparency (1-5): Is the decomposition rationale clear?
+- Format Compliance (1-5): Are sub-questions properly formatted for the retriever?
 
-**Example 2: Scaling a Code Generation Pipeline**
+Output JSON: {"scores": {...}, "actionable_feedback": "...", "overall": <float>}
+```
 
-User: "I'm building: Problem Analyzer -> Code Generator -> Test Generator -> Code Refiner. At scale, the feedback from the refiner back to the analyzer becomes useless generic text. Fix this."
+4. Free phase results (after ~12 iterations each):
+   - Decomposer equilibrium: overall 4.1 (improved sub-question specificity)
+   - Synthesizer equilibrium: overall 3.8 (improved evidence citation)
+   - Answerer equilibrium: overall 4.3 (improved answer formatting)
+5. Nudged phase: Forward-signal nudge to Decomposer — "Ensure sub-questions include temporal constraints when the original question involves dates" (beta=0.7, annealed over 15 iterations)
+6. Result: F1 improves from 44.9 (DSPy baseline) to 48.7
 
-Approach:
-1. Diagnose the failure mode: this is **vanishing textual gradient** -- feedback loses specificity over 4 hops.
-2. Replace global backprop with TEP local critics:
-   - Problem Analyzer critic: checks for edge case identification, input/output spec completeness, constraint enumeration
-   - Code Generator critic: checks syntax validity, algorithm correctness, efficiency, style
-   - Test Generator critic: checks coverage of edge cases, assertion quality, independence from implementation
-   - Code Refiner critic: checks bug fixes, performance improvements, readability
-3. Free phase: optimize each module's prompt until local critic scores stabilize.
-4. Nudged phase: clamp Code Refiner output to known-correct solutions. Compare what each module produced freely vs. what it should have produced given the correct final code.
-5. Contrastive update for Problem Analyzer:
-   ```
-   Free: "Handle integer inputs, return sorted list"
-   Nudged: "Handle integer inputs including negatives and duplicates,
-   return sorted list in O(n log n), raise ValueError on empty input"
-   Edit: Add to prompt: "Explicitly enumerate: negative numbers, duplicates,
-   empty inputs, type constraints, and complexity requirements."
-   ```
-6. Validate on 20 held-out problems, accept only non-degrading edits.
+**Example 2: Code Generation Pipeline Optimization**
 
-Output: Each module's prompt is optimized locally. Feedback stays bounded (under 500 tokens per module) regardless of pipeline depth.
-
-**Example 3: Designing a TEP-Ready Agentic Workflow from Scratch**
-
-User: "I want to build a research agent that searches papers, extracts claims, verifies them, and writes a summary. How should I structure it for optimization?"
+User: "My code generation system has: problem analysis -> code gen -> test gen -> code refinement. It works at depth 1x but fails at 3x scale. Optimize it."
 
 Approach:
-1. Design 4 modules with explicit input/output schemas:
-   - Paper Searcher: query -> ranked paper list (title, abstract, relevance score)
-   - Claim Extractor: paper text -> structured claims (claim, evidence, confidence)
-   - Claim Verifier: claim + evidence -> verification verdict + reasoning
-   - Summary Writer: verified claims -> coherent research summary
-2. Build local critic rubrics for each module at design time:
-   ```json
-   {
-     "module": "Claim Verifier",
-     "task_independent": {
-       "structural_clarity": "1-5: Is the verdict clearly separated from reasoning?",
-       "internal_consistency": "1-5: Does the reasoning support the verdict?",
-       "reasoning_transparency": "1-5: Are logical steps explicit?"
-     },
-     "task_dependent": {
-       "evidence_grounding": "1-5: Does verdict rely only on provided evidence?",
-       "uncertainty_calibration": "1-5: Are confidence levels appropriate?"
-     }
-   }
-   ```
-3. Initialize prompts with clear contracts between modules.
-4. Collect 30 sample research questions, split 20/10 train/validation.
-5. Run TEP optimization: free phase (local critic convergence), nudged phase (clamp to expert summaries), contrastive updates, validation gating, beta decay. Run 8 rounds.
+1. Map nodes: Analyzer (stochastic), Generator (stochastic), TestWriter (stochastic), Refiner (stochastic)
+2. Task objective: pass@1 on BigCodeBench
+3. Attach critics. Example for Generator:
 
-Output: A 4-module pipeline with optimized prompts, documented critic rubrics, and stable performance at depth 4.
+```
+Evaluate this generated code against the problem analysis:
+- Structural Clarity: Is the code well-organized with clear function boundaries?
+- Completeness: Does it implement all requirements from the analysis?
+- Consistency: Are variable names, error handling patterns consistent?
+- Context Integration: Does it use the data structures suggested by the analysis?
+- Reasoning Transparency: Are algorithmic choices justified in comments?
+- Format Compliance: Does it follow the required output format?
+```
+
+4. Free phase: Each node self-refines independently. Generator reaches equilibrium at iteration 8 (score 4.0). Refiner needs 18 iterations (score 3.6 — harder to self-evaluate).
+5. Nudged phase: Key nudge to Refiner — "When test failures indicate edge cases, modify only the specific failing branch rather than restructuring" (beta=0.5). Key nudge to TestWriter — "Generate boundary-value tests before happy-path tests" (beta=0.6).
+6. Result: pass@1 improves from 35.7 (TextGrad) to 39.0, with token cost 41% lower at 2x scale
+
+**Example 3: Retrieval-Augmented Pipeline with Tool Use**
+
+User: "I need to optimize a research assistant pipeline: query understanding -> web search -> document ranking -> summarization -> fact verification -> response generation."
+
+Approach:
+1. Map 6 nodes: QueryParser (stochastic), WebSearch (deterministic), Ranker (stochastic), Summarizer (stochastic), Verifier (stochastic), Responder (stochastic)
+2. Task objective: MRR on STARK-PRIME benchmark
+3. Free phase on 4 stochastic nodes in parallel. Ranker critic focuses on relevance ordering; Verifier critic focuses on claim-evidence alignment.
+4. Nudged phase: Forward signal from MRR evaluation nudges QueryParser to include domain-specific qualifiers, and Ranker to weight recency more heavily.
+5. Result: MRR improves from 41.4 (DSPy) to 42.7 while keeping token cost flat across the 6-stage depth
 
 ## Best Practices
 
-- **Do:** Define explicit input/output schemas for every module before optimization. TEP's local critics need clear contracts to evaluate against.
-- **Do:** Start with a generous iteration cap (20) for the free phase, then reduce once you observe typical convergence behavior (usually 5-8 iterations suffice).
-- **Do:** Use the structured 6-dimension scoring rubric (Structural Clarity, Specification Completeness, Internal Consistency, Context Integration, Reasoning Transparency, Format Compliance) as your baseline -- it is task-agnostic and well-calibrated.
-- **Do:** Decay beta geometrically (multiply by 0.9 each round) to transition from coarse structural fixes to fine-grained tuning.
-- **Avoid:** Propagating raw final-output feedback backward through more than 2 modules -- this is exactly the failure mode TEP replaces.
-- **Avoid:** Making large prompt rewrites in contrastive updates. Edits must be proximal: specific, bounded, and targeted at the exact gap identified in the free-vs-nudged comparison.
-- **Avoid:** Skipping the validation gate. Every prompt edit must be tested against held-out examples. Accepting unvalidated edits breaks monotonic improvement guarantees.
+- **Do:** Run the free phase for all nodes in parallel — they are independent by design. This is the primary efficiency advantage over sequential global backpropagation.
+- **Do:** Use the six-dimension scoring rubric consistently across all critics. Customize weights per node type (e.g., format compliance matters more for a code generator than a summarizer).
+- **Do:** Start nudge strength beta at 0.5-0.8 and anneal by 0.9x. Too high causes oscillation; too low causes stagnation.
+- **Do:** Sample temperature uniformly from U(0.3, 0.9) during optimization to avoid overfitting to a single decoding mode.
+- **Avoid:** Skipping the free phase and jumping straight to nudges. The free phase establishes a stable local optimum that nudges can meaningfully adjust. Without it, HotpotQA F1 drops by 11.9 points.
+- **Avoid:** Using global feedback chains for pipelines deeper than 3 stages. Token growth is exponential (~2.2x per stage) and update success rates collapse to 5% at 5x depth.
+- **Avoid:** Making nudges that rewrite prompts wholesale. Nudges must be proximal — small, targeted edits. If a nudge changes more than 15-20% of a prompt, reduce beta.
 
 ## Error Handling
 
-- **Free phase fails to converge:** If a module's critic scores oscillate without stabilizing after 20 iterations, the critic rubric is likely ambiguous or conflicting. Simplify the rubric to fewer, more orthogonal dimensions. Reduce temperature range to [0.3, 0.6] to decrease output variance.
-- **Nudged phase produces nonsensical outputs:** The clamped target may be incompatible with the module's input format. Verify that the ground-truth signal can be meaningfully interpreted at each module's level of abstraction. For intermediate modules, derive intermediate targets from the final ground truth rather than clamping the raw answer.
-- **Contrastive updates are empty (free = nudged):** The module is already performing optimally or the nudge signal isn't reaching it. Check that upstream modules are passing nudged outputs forward correctly. Consider clamping at intermediate modules, not just the final one.
-- **Validation performance drops despite good contrastive diffs:** The edits are overfitting to the nudged examples. Increase validation set size or reduce edit specificity (make edits slightly more general).
+- **Critic scores oscillate without converging:** Lower the temperature for the critic LLM call (use 0.3 instead of sampling from U(0.3, 0.9)) and increase the variance threshold from 0.5 to 1.0. If still oscillating after 20 iterations, accept the current state as approximate equilibrium.
+- **Nudges degrade global performance:** Roll back the nudge, reduce beta by 50%, and retry. If three consecutive nudges all degrade, the node may already be at its local-global optimum — skip it.
+- **Token budget exceeded during free phase:** Reduce max iterations from 20 to 10 and use a smaller/faster critic model (e.g., Claude Haiku instead of Opus). The free phase is the most token-intensive component.
+- **Pipeline has deterministic nodes that bottleneck quality:** TEP only optimizes stochastic (LLM) nodes. If a tool or database query is the bottleneck, refactor the pipeline to add a stochastic preprocessing node before the deterministic one (e.g., a query formatter before a search API).
+- **Nudge phase shows no improvement:** Verify the task-level objective is measurable and differentiable at the prompt level. Vague objectives like "be better" produce vague nudges. Use specific metrics (F1, pass@1, MRR).
 
 ## Limitations
 
-- TEP requires ground-truth or high-quality objective targets for the nudged phase. It cannot optimize purely open-ended creative pipelines where "correct output" is undefined.
-- The free phase's local critics add computational cost -- each module runs 5-20 evaluation iterations. For latency-sensitive applications, consider running free-phase optimization offline and deploying frozen prompts.
-- TEP is designed for pipelines with 3+ modules. For 2-module systems, simple TextGrad-style feedback is usually sufficient and simpler.
-- The technique assumes modules communicate via text. Pipelines with non-textual intermediate representations (embeddings, images) require adaptation at those boundaries.
-- Local critics may have blind spots that only manifest at the system level. Periodic end-to-end evaluation is still necessary alongside local optimization.
+- TEP requires a measurable end-to-end evaluation metric. If the final output can only be judged subjectively, the nudged phase lacks a clear signal.
+- The free phase adds latency per node (up to 20 critic iterations). For latency-sensitive applications, cap iterations aggressively (5-8) and accept approximate equilibrium.
+- TEP optimizes prompts, not model weights. If a pipeline's bottleneck is model capability (the LLM simply cannot do the task), prompt optimization will plateau.
+- Works best at depth 3+. For 2-stage pipelines, simpler approaches (direct prompt engineering, TextGrad) may be equally effective with less overhead.
+- The six-dimension rubric is general-purpose. Highly specialized domains (medical, legal) may need custom scoring dimensions for the critic.
 
 ## Reference
 
-[Textual Equilibrium Propagation for Deep Compound AI Systems](https://arxiv.org/abs/2601.21064v2) -- Chen, Deng, Zou, Yu, Li (2026). Focus on Section 3 (the two-phase TEP algorithm), Section 4.1 (the structured critic rubric), and Figure 3 (depth-scaling comparison against TextGrad). Key result: TEP achieves 48.72 F1 on HotpotQA vs TextGrad's 24.86 at depth 4, with stable token complexity.
+Chen, M., Deng, W., Zou, J., Yu, H., & Li, X. (2026). *Textual Equilibrium Propagation for Deep Compound AI Systems.* ICLR 2026. [arXiv:2601.21064v2](https://arxiv.org/abs/2601.21064v2)
+
+Key sections: Section 3 for the formal TEP algorithm, Section 4.1 for depth-scaling failure analysis of TextGrad, Table 2 for benchmark comparisons, Appendix B for full pseudocode, and Appendix C for critic prompt templates.
