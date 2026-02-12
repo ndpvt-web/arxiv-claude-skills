@@ -1,91 +1,241 @@
 ---
 name: "linguistagent-a-reflective-multimodel"
-description: "Data annotation remains a significant bottleneck in the Humanities and Social Sciences, particularly for complex semantic tasks such as metaphor identification. Implements techniques from 'LinguistAgent: A Reflective Multi-Model Platform for Automated Linguistic Annotation'. Use for tasks involving: search retrieval, agent framework, prompt engineering. Triggers: \"Find information about...\", \"Search the codebase for...\", \"Build a pipeline that...\", \"Coordinate multiple tasks to...\", \"Optimize this prompt\", \"Design a prompt for...\""
+description: >
+  Implements a reflective dual-agent (Annotator + Reviewer) workflow for automated
+  linguistic annotation tasks such as metaphor identification, sentiment labeling,
+  named entity recognition, and other sequence-labeling problems. The Annotator marks
+  spans in text using XML tags and provides reasoning; the Reviewer critiques the
+  annotations against a codebook, catching false positives and missed instances, then
+  feeds corrections back for self-improvement.
+  Trigger phrases: "annotate this text for metaphors", "dual-agent annotation pipeline",
+  "reflective annotation workflow", "linguistic annotation with LLM review",
+  "peer-review annotation system", "automated text labeling with self-correction"
 ---
 
-# LinguistAgent: A Reflective Multi-Model Platform for Automated Linguistic Annotation
+# LinguistAgent: Reflective Dual-Agent Linguistic Annotation
 
-You are a search and retrieval specialist. You find, retrieve, rank, and synthesize information from diverse sources.
+This skill enables Claude to perform high-quality automated linguistic annotation by
+implementing a reflective dual-agent architecture from the LinguistAgent paper. Instead
+of a single-pass annotation, Claude alternates between an **Annotator** role (marking
+target spans with XML tags and providing chain-of-thought justifications) and a
+**Reviewer** role (critiquing annotations against a codebook, identifying false positives
+and missed instances, and producing corrected output). This peer-review simulation
+consistently outperforms single-agent annotation across zero-shot, few-shot, and
+RAG-augmented paradigms.
 
-**Paper:** [2602.05493v1](https://arxiv.org/abs/2602.05493v1) | **Category:** cs.CL | **Published:** 2026-02-05
-**Authors:** Bingru Li
+## When to Use
 
-## Research Context
+- When the user asks to annotate text for **metaphors, metonymy, irony, or other figurative language**
+- When the user needs **named entity recognition, sentiment labeling, or any token/span-level annotation** with quality assurance
+- When the user wants to **compare annotation strategies** (zero-shot vs. few-shot vs. codebook-augmented)
+- When the user provides a **codebook or annotation guidelines** and wants automated labeling that respects those rules
+- When the user asks to **evaluate annotation quality** against a gold standard using Precision, Recall, and F1
+- When the user wants a **self-correcting annotation pipeline** that catches and fixes its own mistakes
 
-> Data annotation remains a significant bottleneck in the Humanities and Social Sciences, particularly for complex semantic tasks such as metaphor identification. While Large Language Models (LLMs) show promise, a significant gap remains between the theoretical capability of LLMs and their practical utility for researchers. This paper introduces LinguistAgent, an integrated, user-friendly platform that leverages a reflective multi-model architecture to automate linguistic annotation. The system implements a dual-agent workflow, comprising an Annotator and a Reviewer, to simulate a professional peer-review process. LinguistAgent supports comparative experiments across three paradigms: Prompt Engineering (Zero/Few-shot), Retrieval-Augmented Generation, and Fine-tuning. We demonstrate LinguistAgent's efficacy using the task of metaphor identification as an example, providing real-time token-level evaluation (Precision, Recall, and $F_1$ score) against human gold standards. The application and codes are released on https://github.com/Bingru-Li/LinguistAgent.
+## Key Technique
 
-## Key Techniques from This Paper
+The core insight of LinguistAgent is that annotation quality improves substantially when
+you separate the task into two distinct agent roles that operate in sequence. The
+**Annotator** receives the input text plus instructions (and optionally few-shot examples
+or a full codebook) and produces annotations by wrapping target expressions in XML tags
+(e.g., `<Metaphor>broken heart</Metaphor>`). Critically, the Annotator also emits a
+structured reasoning field justifying each annotation decision based on the provided
+linguistic protocol.
 
-- Proposes: linguistagent
+The **Reviewer** then receives both the original text and the Annotator's full output
+(tags + reasoning). It performs comparative analysis: checking each tagged span against
+the codebook to flag false positives, scanning the original text for missed instances to
+flag false negatives, and producing a critique with a corrected version. This reflection
+cycle exploits the fact that verification is easier than generation — the Reviewer
+operates on a constrained evaluation task rather than open-ended labeling.
 
-## Workflow
+The system supports three paradigms of increasing knowledge injection: (1) **Zero/Few-shot
+Prompt Engineering**, where the Annotator receives only instructions and optional
+examples; (2) **RAG / Full-Context**, where the complete codebook is embedded in the
+system prompt, leveraging long context windows; and (3) **Fine-tuning**, where a
+domain-specialized model replaces the general-purpose Annotator. The Reviewer can use the
+same or a different model, enabling cross-model validation. Evaluation uses token-level
+binary sequences (1 = tagged, 0 = untagged) compared against gold standards to compute
+Precision, Recall, and F1.
 
-Apply the techniques from this research using the following process:
+## Step-by-Step Workflow
 
-1. Decompose the user's information need into specific sub-queries
-2. Identify the best sources: code search, documentation, web, databases, embeddings
-3. Execute searches with multiple query formulations for recall
-4. Rank and filter results by relevance, recency, and authority
-5. Synthesize findings into a structured answer with citations
-6. Highlight confidence levels and information gaps
+1. **Define the annotation task and tag schema.** Establish the target phenomenon
+   (e.g., metaphor, named entity, sentiment) and the XML tag names to use
+   (e.g., `<Metaphor>`, `<Entity type="PER">`). If the user provides a codebook or
+   annotation guidelines, parse them into a structured reference document.
 
-### Additional: You are a multi-agent orchestration specialist
+2. **Select the annotation paradigm.** Choose zero-shot (instruction only), few-shot
+   (instruction + 2-5 annotated examples), or full-context RAG (instruction + complete
+   codebook). If the user has gold-standard examples, reserve some for few-shot and
+   the rest for evaluation.
 
-1. Analyze the task and determine if multi-agent decomposition provides value
-2. Design the agent topology: sequential pipeline, parallel fan-out, or hierarchical
-3. Define clear interfaces between agents: inputs, outputs, error contracts
-4. Execute agents with appropriate timeouts, retries, and fallbacks
+3. **Construct the Annotator system prompt.** Include: (a) the task definition,
+   (b) the tag schema with examples of correct usage, (c) explicit instruction to wrap
+   target spans in XML tags within the original text, and (d) instruction to provide a
+   `reasoning` field as a JSON object explaining each annotation decision.
 
-### Additional: You are a prompt engineering specialist
+4. **Run the Annotator pass.** Send each text segment to the Annotator. Collect the
+   annotated text (with XML tags inline) and the reasoning chain. Store both in a
+   structured format (JSON with fields: `original_text`, `annotated_text`, `reasoning`).
 
-1. Understand the target task and success criteria
-2. Draft an initial prompt using appropriate techniques: zero-shot, few-shot, CoT, ReAct
-3. Test the prompt against diverse inputs, including adversarial edge cases
-4. Iterate: identify failure modes and add constraints, examples, or structure
+5. **Construct the Reviewer system prompt.** Include: (a) the same codebook/guidelines
+   as the Annotator, (b) explicit instruction to compare the annotated text against
+   the original, (c) checklist: identify false positives (incorrectly tagged spans),
+   false negatives (missed spans), and boundary errors (partially tagged spans), and
+   (d) instruction to output a `critique` field and a `corrected_text` field.
 
-## Approach Selection
+6. **Run the Reviewer pass.** Send the original text, the Annotator's annotated text,
+   and the Annotator's reasoning to the Reviewer. Collect the critique and corrected
+   annotations.
 
-Determine the appropriate approach based on the user's request:
+7. **Optional: iterate the reflection loop.** If the Reviewer made corrections, feed
+   the corrected output back to a second Reviewer pass (or back to the Annotator) for
+   one additional round. Diminishing returns typically set in after 1-2 review cycles.
 
-**Search Retrieval task?** Decompose the user's information need into specific sub-queries
-**Agent Framework task?** Analyze the task and determine if multi-agent decomposition provides value
-**Prompt Engineering task?** Understand the target task and success criteria
+8. **Extract tagged spans from the final annotated text.** Parse XML tags to produce a
+   list of `(span_text, start_index, end_index, label)` tuples for downstream use.
 
-## Quality Checklist
+9. **Evaluate against gold standard (if provided).** Convert both the system output and
+   the gold annotations into token-level binary vectors. Compute Precision (TP / (TP+FP)),
+   Recall (TP / (TP+FN)), and F1 (2*P*R / (P+R)). Report per-sentence and aggregate
+   scores.
 
-Before delivering results, verify:
+10. **Present results.** Output the final annotated text, the list of extracted spans,
+    evaluation metrics (if applicable), and the Reviewer's critique log for
+    transparency.
 
-- [ ] Every factual claim has a source reference
-- [ ] Conflicting information is explicitly noted
-- [ ] Results are ranked by relevance, not just recency
-- [ ] The answer directly addresses the user's actual question
-- [ ] Each agent has a single, well-defined responsibility
-- [ ] Agent failures don't cascade to the whole pipeline
+## Concrete Examples
 
-## When to Use This Skill
+**Example 1: Metaphor Identification in Literary Text**
 
-This skill is triggered by requests such as:
+User: "Annotate this paragraph for metaphors: 'The city was a jungle of concrete and steel. Her words cut through the silence like a knife, and he felt the weight of the world pressing down on his shoulders.'"
 
-- "Find information about..."
-- "Search the codebase for..."
-- "Build a pipeline that..."
-- "Coordinate multiple tasks to..."
-- "Optimize this prompt"
-- "Design a prompt for..."
+Approach:
+1. Define tag schema: `<Metaphor>...</Metaphor>`
+2. Run Annotator (zero-shot):
 
-## Practical Application
+```json
+{
+  "annotated_text": "The city was <Metaphor>a jungle of concrete and steel</Metaphor>. Her words <Metaphor>cut through the silence</Metaphor> like a knife, and he felt <Metaphor>the weight of the world pressing down on his shoulders</Metaphor>.",
+  "reasoning": {
+    "a jungle of concrete and steel": "Maps WILDERNESS domain onto CITY; concrete/steel are not literal jungle elements.",
+    "cut through the silence": "Maps PHYSICAL_CUTTING onto SPEECH; words cannot literally cut.",
+    "the weight of the world pressing down": "Maps PHYSICAL_BURDEN onto EMOTIONAL_STATE; responsibility is not literal weight."
+  }
+}
+```
 
-When applying the techniques from this paper:
+3. Run Reviewer — Reviewer checks for missed metaphor "like a knife" (simile, related but distinct), confirms the three annotations are valid per standard metaphor theory, and notes no false positives.
 
-1. **Understand the problem context** -- The paper addresses data annotation remains a significant bottleneck in the humanities and social sciences, particularly for complex semantic tasks such as metaphor identification.
-2. **Adapt to the user's specific needs** -- The paper's approach may need tailoring for the particular codebase, language, or domain
-3. **Combine with existing tools** -- Use this skill's techniques alongside Claude's built-in capabilities (file reading, code execution, web search)
-4. **Iterate and refine** -- Apply the technique, evaluate results, and refine the approach based on feedback
+```json
+{
+  "critique": "All three annotations are valid metaphors. 'like a knife' is a simile (explicit comparison marker 'like'), which is conventionally excluded from metaphor annotation unless the codebook specifies otherwise. No false negatives detected for pure metaphor.",
+  "corrected_text": "(no changes needed)"
+}
+```
+
+Output — Final spans:
+| Span | Start | End | Label |
+|------|-------|-----|-------|
+| a jungle of concrete and steel | 17 | 47 | Metaphor |
+| cut through the silence | 59 | 82 | Metaphor |
+| the weight of the world pressing down on his shoulders | 112 | 167 | Metaphor |
+
+---
+
+**Example 2: Named Entity Annotation with Codebook**
+
+User: "I have these annotation guidelines: tag PERSON, ORG, and LOC entities. Annotate: 'Marie Curie worked at the University of Paris before moving to Warsaw. The Nobel Committee awarded her twice.'"
+
+Approach:
+1. Tag schema: `<Entity type="PER">`, `<Entity type="ORG">`, `<Entity type="LOC">`
+2. Embed codebook in system prompt (RAG paradigm).
+3. Annotator output:
+
+```
+<Entity type="PER">Marie Curie</Entity> worked at <Entity type="ORG">the University of Paris</Entity> before moving to <Entity type="LOC">Warsaw</Entity>. <Entity type="ORG">The Nobel Committee</Entity> awarded her twice.
+```
+
+4. Reviewer catches boundary issue: "the" in "the University of Paris" — most NER conventions exclude articles from entity spans.
+
+```json
+{
+  "critique": "Boundary error: 'the University of Paris' should be 'University of Paris' — articles are excluded per standard NER guidelines. All other spans are correct.",
+  "corrected_text": "<Entity type=\"PER\">Marie Curie</Entity> worked at the <Entity type=\"ORG\">University of Paris</Entity> before moving to <Entity type=\"LOC\">Warsaw</Entity>. The <Entity type=\"ORG\">Nobel Committee</Entity> awarded her twice."
+}
+```
+
+---
+
+**Example 3: Batch Annotation with Evaluation**
+
+User: "Annotate these 3 sentences for sentiment-bearing words and evaluate against my gold standard."
+
+Approach:
+1. Process each sentence through Annotator with `<Sentiment polarity="pos|neg">` tags.
+2. Run Reviewer on each to catch over/under-tagging.
+3. Convert final tags and gold standard to binary token vectors.
+4. Compute metrics:
+
+```
+Sentence 1: P=1.00  R=0.80  F1=0.89
+Sentence 2: P=0.75  R=1.00  F1=0.86
+Sentence 3: P=0.83  R=0.83  F1=0.83
+---
+Aggregate:  P=0.86  R=0.88  F1=0.86
+```
+
+## Best Practices
+
+- **Do:** Always include the Reviewer pass — the paper shows it consistently outperforms
+  Annotator-only across all paradigms (zero-shot, few-shot, RAG).
+- **Do:** Use structured JSON output with separate `reasoning` and `annotated_text`
+  fields. This makes the Reviewer's job tractable and enables audit trails.
+- **Do:** When a codebook exists, embed it fully in the system prompt (RAG paradigm)
+  rather than summarizing it. Full-context outperforms fragmented retrieval for
+  annotation guidelines.
+- **Do:** Evaluate at the token level with binary vectors, not span-level exact match.
+  Token-level metrics are more granular and forgiving of minor boundary differences.
+- **Avoid:** Running more than 2 Reviewer iterations. Diminishing returns set in quickly
+  and you risk the Reviewer introducing new errors through over-correction.
+- **Avoid:** Using the same reasoning framing for both Annotator and Reviewer. The
+  Annotator should reason about *why spans match the definition*; the Reviewer should
+  reason about *whether the Annotator's justifications hold up against the codebook*.
+
+## Error Handling
+
+- **Malformed XML tags in Annotator output:** If the Annotator produces unclosed or
+  nested tags incorrectly, re-prompt with explicit instruction to ensure well-formed XML.
+  Parse with a lenient XML parser that recovers partial tags.
+- **Reviewer disagrees on every annotation:** This signals a prompt misalignment between
+  Annotator and Reviewer instructions. Verify both agents received identical codebook
+  definitions and tag schemas.
+- **Empty annotations (no spans tagged):** The Annotator may be too conservative. Switch
+  from zero-shot to few-shot with 2-3 positive examples to calibrate detection threshold.
+- **Gold standard format mismatch:** Ensure gold annotations use the same tokenization as
+  the system output. Normalize whitespace and punctuation handling before computing
+  binary vectors.
+- **Truncated JSON responses:** For long texts, chunk input into segments of 200-500
+  tokens to avoid response truncation. Reassemble annotations after all chunks complete.
 
 ## Limitations
 
-- This skill encodes the *approach* from the paper, not a direct implementation of its trained model
-- Results may vary based on the complexity and domain of the specific task
-- For tasks outside the paper's scope, fall back to general-purpose reasoning
+- The dual-agent workflow doubles the token cost per annotation compared to single-pass
+  approaches. For budget-constrained bulk annotation, consider running the Reviewer only
+  on a sample to estimate quality.
+- This approach works best for **span-level and token-level** annotation tasks. For
+  document-level classification (e.g., "is this document positive or negative?"), the
+  Reviewer adds less value since there is no span boundary to critique.
+- The Reviewer cannot catch errors it doesn't know to look for. If the codebook is
+  ambiguous or incomplete, both agents will reproduce the same systematic biases.
+- Performance depends on the base model's linguistic knowledge. Highly specialized
+  annotation tasks (e.g., phonological analysis, syntactic tree labeling) may still
+  require fine-tuned models rather than prompt-based approaches.
 
-Refer to the [full paper](https://arxiv.org/abs/2602.05493v1) for detailed methodology, experimental results, and ablation studies.
+## Reference
+
+**Paper:** [LinguistAgent: A Reflective Multi-Model Platform for Automated Linguistic
+Annotation](https://arxiv.org/abs/2602.05493v1) — Li, 2026. Key insight: a dual-agent
+Annotator-Reviewer loop with structured reasoning fields consistently improves annotation
+quality over single-pass LLM labeling across zero-shot, few-shot, and RAG paradigms.
