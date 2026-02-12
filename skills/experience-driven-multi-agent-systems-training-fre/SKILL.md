@@ -1,247 +1,168 @@
 ---
 name: "experience-driven-multi-agent-systems-training-fre"
-description: "Build self-evolving multi-agent systems that accumulate tool-usage expertise in a memory bank without fine-tuning. Implements GeoEvolver-style retrieval-augmented orchestration with sub-goal decomposition, parallel exploration of tool-parameter configurations, root-cause failure attribution, and experience distillation. Triggers: 'build a self-evolving agent pipeline', 'multi-agent system with experience memory', 'tool-parameter exploration with failure learning', 'orchestrate agents with evolving memory bank', 'training-free agent expertise accumulation', 'GeoEvolver-style agent system'"
+description: "Build self-evolving multi-agent systems that accumulate tool-level expertise through structured interaction without model fine-tuning. Uses GeoEvolver's architecture: retrieval-augmented orchestration, parallel sub-goal exploration, contrastive memory distillation, and root-cause failure attribution. Triggers: 'build a self-evolving agent pipeline', 'create an experience-driven multi-agent system', 'add memory to my agent workflow', 'implement tool exploration with failure learning', 'make agents learn from execution history', 'build a GeoEvolver-style system'"
 ---
 
-# Experience-Driven Multi-Agent Systems with Evolving Memory
+# Experience-Driven Self-Evolving Multi-Agent Systems (GeoEvolver Pattern)
 
-This skill enables Claude to design and implement **self-evolving multi-agent systems** based on the GeoEvolver architecture (Dai et al., 2026). The core idea: instead of fine-tuning LLM parameters, externalize domain expertise into a dynamic memory bank that grows from structured interaction. The system decomposes complex queries into independent sub-goals, explores diverse tool-parameter configurations in parallel, then distills successful patterns and root-cause failure attributions into retrievable experiences that improve future executions. This produces training-free agents that get measurably better at tool-intensive pipelines over time.
+This skill enables Claude to design and implement multi-agent systems that progressively acquire tool-level expertise through structured interaction — without any model parameter updates. Based on the GeoEvolver architecture (Dai et al., 2026), the core insight is that LLM agents can learn fine-grained tool configuration patterns and failure recovery strategies by decomposing complex tasks into independent sub-goals, exploring diverse tool-parameter configurations in parallel, and distilling both successes and root-cause failure attributions into an evolving memory bank that provides in-context demonstrations for future queries.
 
-## When to Use This Skill
+## When to Use
 
-- When the user needs to build an agent system that orchestrates multiple tools in long-horizon pipelines (e.g., data processing chains, ETL workflows, multi-step analysis)
-- When the user wants agents that learn from execution failures without retraining or fine-tuning the underlying model
-- When building a multi-agent architecture that decomposes complex tasks into parallelizable sub-goals with explicit I/O contracts
-- When the user asks for a pipeline that explores multiple tool configurations and selects the best execution path
-- When implementing retrieval-augmented planning where past successes and failures guide future tool usage
-- When the user needs robust error recovery through root-cause attribution rather than naive retrying
-- When building domain-specific agent systems for tool-heavy fields (geospatial, bioinformatics, DevOps, data engineering)
+- When the user needs to build a multi-agent pipeline that handles tool-intensive workflows (data processing, API orchestration, geospatial analysis) where tool parameter configuration is error-prone
+- When the user wants agents that improve over time without retraining — learning from execution successes and failures stored in a persistent memory bank
+- When building pipelines where errors in one step silently propagate and corrupt downstream results, requiring fine-grained failure localization
+- When the user asks to implement parallel exploration of tool configurations with automatic selection of the best execution path
+- When designing agent systems for specialized domains (earth observation, bioinformatics, financial data, DevOps) that require implicit tool constraints the LLM doesn't natively know
+- When the user wants to add retrieval-augmented experience memory to an existing agent framework (LangChain, CrewAI, AutoGen, custom)
 
-## Key Technique: Experience-as-Parameters
+## Key Technique
 
-The GeoEvolver architecture replaces parameter updates with an **evolving memory bank** that stores distilled execution experiences. This is built on three insights:
+**The core problem**: LLM agents generating multi-step tool-calling pipelines frequently fail in specialized domains not because the high-level plan is wrong, but because subtle tool-parameter misconfigurations propagate silently through the pipeline. Existing approaches either require expensive fine-tuning or rely on generic retry logic that doesn't learn from past failures.
 
-**Sub-goal isolation localizes failure.** Rather than planning an entire pipeline monolithically, the Orchestrator decomposes each query into N independent sub-goals, each with explicit input/output format contracts and success criteria. Sub-goals execute in parallel via dedicated Executor agents. When a sub-goal fails, the failure is contained -- you know exactly which tool call in which sub-goal broke, not just that "the pipeline failed." Task-level success requires all sub-goals to succeed: `Y = AND(Y_1, Y_2, ..., Y_N)`.
+**GeoEvolver's solution** uses four cooperating agents in a closed loop: (1) a **Retriever** that queries an embedding-indexed memory bank for relevant past execution patterns, (2) an **Orchestrator** that decomposes queries into N independent sub-goals with explicit input/output contracts, (3) **K parallel Executor variants** that each independently attempt the full pipeline with up to A corrective retries per sub-goal, and (4) a **Judge** that emits binary success labels per sub-goal and selects the best overall execution trace. The key architectural insight is decoupling planning from execution and making sub-goals independently evaluable, which localizes failures to specific tool calls rather than the entire pipeline.
 
-**Parallel exploration beats single-shot execution.** For each sub-goal, the system maintains K parallel exploration variants, each trying different prompt phrasings or tool-parameter configurations. A Judge agent scores each variant's trajectory using binary success labels plus auxiliary validity signals (step count, output correctness). The best trajectory is selected via `argmax_k Score(trajectory_k | success_k, validity_k)`. This turns tool configuration from a guess into a search.
-
-**Contrast-driven distillation produces reusable expertise.** After execution, an Extractor compares successful and failed trajectories to produce memory entries. Successes capture tool orderings and decision checkpoints. Failures capture root causes and corrective guardrails. These entries are embedded and stored in the memory bank with deduplication. Future queries retrieve the top-k most similar entries via embedding similarity, which are injected as high-level hints (not literal parameter copies) into executor prompts.
+**Experience accumulation** happens through two distillation mechanisms after each task. *Single-variant extraction* captures analysis patterns (successful tool orderings and parameter choices) or error attributions (failure symptoms and corrective guardrails) from the best trace. *Contrastive memory distillation* compares all K parallel variants to synthesize workflow invariants that held across successes and failure modes with recovery strategies. Entries are deduplicated by `(source_id, pattern_type, title)` keys and stored in a persistent memory bank. Future queries retrieve top-k similar entries via embedding similarity, providing the orchestrator with execution-grounded demonstrations rather than generic instructions.
 
 ## Step-by-Step Workflow
 
-### 1. Define the Agent Roles
+1. **Define the agent roles and their separation of concerns.** Create four distinct agent components: Retriever (memory lookup), Orchestrator (task decomposition), Executor (tool-calling sub-goal execution), and Judge (outcome evaluation). Each agent gets a focused system prompt describing only its responsibility.
 
-Create four distinct agent roles following the GeoEvolver operator pipeline:
+2. **Design the memory bank schema.** Create a persistent store (JSON file, SQLite, or vector DB) with entries containing: `source_id`, `pattern_type` (one of `analysis_pattern` or `error_attribution`), `title`, `embedding` (for retrieval), `content` (the actual pattern or failure description), `tool_sequence` (ordered tool calls), `parameter_snapshot` (key parameter values), and `timestamp`. Include a deduplication function keyed on `(source_id, pattern_type, title)`.
 
-- **Retriever**: Queries the memory bank using embedding similarity to find relevant past experiences for the current task
-- **Orchestrator**: Decomposes the user query into N independent sub-goals with explicit I/O contracts, conditioned on retrieved context
-- **Executors** (N instances): Each executes one sub-goal independently, calling tools and producing a sub-trajectory
-- **Judge**: Evaluates sub-trajectories, emits binary success labels, and produces validity confidence signals
+3. **Implement the retrieval mechanism.** On each new query, embed the query text using a sentence embedding model (or LLM-based embedding), retrieve top-k entries from the memory bank by cosine similarity, and aggregate them into a "strategy context" string. Apply a leakage filter: exclude entries whose content overlaps with expected outputs to prevent shortcutting.
 
-### 2. Implement the Memory Bank
+4. **Build the orchestrator's sub-goal decomposition.** The orchestrator receives the query plus strategy context and produces N independent sub-goals. Each sub-goal must specify: (a) a natural language description, (b) input format contract (what data it receives), (c) output format contract (what it produces), (d) success criteria (how to verify correctness). The global task succeeds only when all sub-goals succeed: `Y = AND(Y_1, Y_2, ..., Y_N)`.
 
-Create a persistent store (JSON file, SQLite, or vector DB) with this schema per entry:
+5. **Implement parallel exploration with K variants.** For each query, spawn K independent execution pipelines. Each variant runs the full retrieve-plan-execute-judge loop independently. Within each variant, each sub-goal executor gets up to A corrective retry attempts. Use `asyncio.gather()` or thread pools to run variants in parallel where possible.
 
-```json
-{
-  "id": "unique-id",
-  "query_embedding": [0.12, -0.34, ...],
-  "query_text": "Original task description",
-  "outcome": "success" | "failure",
-  "sub_goal": "The specific sub-goal this entry relates to",
-  "tool_chain": ["tool_a(param=x)", "tool_b(param=y)"],
-  "analysis_pattern": "Reusable description of what worked and why",
-  "failure_cause": "Root cause + tool error hint (null if success)",
-  "corrective_guardrail": "What to avoid or check next time (null if success)",
-  "timestamp": "2026-01-30T12:00:00Z"
-}
-```
+6. **Build the executor agents with working memory.** Each executor maintains a compressed working memory: `H_t = summarize(H_{t-1}) || tail(trajectory, L)` where older interactions are summarized and the L most recent raw tool calls are retained verbatim. This prevents context overflow during long-horizon execution while preserving recent actionable detail.
 
-### 3. Implement Retrieval with Leakage Filtering
+7. **Implement the judge with sub-goal-level evaluation.** The judge inspects each sub-goal's output against its success criteria, emitting per-sub-goal binary labels `Y_n` and a validity signal `v`. Select the best variant: `best = argmax_k Score(trajectory_k | Y_k, v_k)`, prioritizing verified success with validity as tiebreaker.
 
-When a new query arrives, embed it and retrieve the top-k most similar memory entries:
+8. **Distill experience after each task.** Run two extraction passes: (a) *Single-variant extraction*: from the best trace, produce an `analysis_pattern` if successful or an `error_attribution` if failed, capturing the specific tool sequence, parameter values, and outcome. (b) *Contrastive distillation*: compare all K variants to identify what was consistent across successes (workflow invariants) and what distinguished failures (divergence points with recovery strategies).
 
-```python
-def retrieve(query: str, memory_bank: list, k: int = 5) -> list:
-    query_vec = embed(query)
-    scored = [(cosine_sim(query_vec, m["query_embedding"]), m) for m in memory_bank]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    # Leakage filter: exclude entries whose content overlaps with expected output
-    filtered = [m for _, m in scored if not leaks(m, expected_output)]
-    return filtered[:k]
-```
+9. **Consolidate into the memory bank.** Merge new entries with deduplication: `memory_bank = memory_bank UNION deduplicate(new_entries, memory_bank)`. Re-index embeddings for the new entries. Optionally prune old low-utility entries based on retrieval frequency and recency.
 
-Aggregate retrieved entries into a strategy context string that the Orchestrator consumes.
-
-### 4. Decompose the Query into Sub-Goals
-
-The Orchestrator takes `(query, strategy_context)` and produces N sub-goals. Each sub-goal specifies:
-
-- **Input contract**: What data/format the executor receives
-- **Output contract**: What data/format the executor must produce
-- **Success criteria**: How the Judge will evaluate correctness
-- **Tool hints**: Suggested tools from retrieved experiences (as hints, not mandates)
-
-Ensure sub-goals have no inter-dependencies so they can execute in parallel.
-
-### 5. Run Parallel Exploration Variants
-
-For each sub-goal, spawn K variants (typically K=3-5) that differ in prompt phrasing or tool-parameter choices. Each variant independently runs retrieve-plan-execute with up to A corrective retries on failure:
-
-```python
-for variant_k in range(K):
-    trajectory = execute_with_retries(sub_goal, variant_config_k, max_retries=A)
-    results.append((trajectory, judge.evaluate(trajectory)))
-```
-
-### 6. Select the Best Trajectory per Sub-Goal
-
-The Judge scores each variant's trajectory using success label and validity signals. Select the best:
-
-```python
-best = max(results, key=lambda r: score(r.trajectory, r.success, r.validity))
-```
-
-Validity signals include: trajectory step count (fewer is better for equivalent success), output format correctness, and intermediate checkpoint verification.
-
-### 7. Distill Experiences via Contrast Extraction
-
-Compare the best successful trajectory against failed ones to produce a memory entry:
-
-- **If successful**: Extract the tool ordering, parameter choices, and decision checkpoints as an `analysis_pattern`
-- **If failed**: Extract the root cause from error messages and logs, then formulate a `corrective_guardrail` for future avoidance
-
-```python
-if best.success:
-    entry = extract_success_pattern(best.trajectory, query)
-else:
-    entry = extract_failure_attribution(all_trajectories, query)
-```
-
-### 8. Update the Memory Bank with Deduplication
-
-Before inserting, check if a canonical duplicate already exists (same query pattern + same tool chain). If so, merge or skip. Otherwise, embed and store:
-
-```python
-canonical_key = hash(entry["sub_goal"] + str(entry["tool_chain"]))
-if canonical_key not in memory_bank.keys():
-    entry["query_embedding"] = embed(entry["query_text"])
-    memory_bank.insert(entry)
-```
-
-### 9. Assemble Final Output from Sub-Goal Results
-
-Combine the outputs of all successful sub-goals into the final task result. If any sub-goal failed across all K variants, report the specific failure with root-cause attribution rather than a generic error.
-
-### 10. Maintain Working Memory for Long Horizons
-
-For long-running pipelines, compress older context while keeping recent steps in full:
-
-```
-working_memory = summarize(previous_history) + last_L_steps(trajectory)
-```
-
-This prevents context overflow while preserving the most actionable recent state.
+10. **Tune hyperparameters for your domain.** Start with K=2 variants, N=3 max sub-goals, A=2 retry attempts, and top-k=5 for memory retrieval. The paper shows strong interaction effects between K and N — jointly increasing both yields substantial gains, but moderate settings balance performance and compute cost. Memory size scales positively with retrieval effectiveness.
 
 ## Concrete Examples
 
-**Example 1: Building a self-evolving data pipeline agent**
+**Example 1: Building a Self-Evolving Data Pipeline Agent**
 
-User: "Build a multi-agent system that processes CSV files through validation, transformation, and loading steps. It should learn from past failures to avoid repeating mistakes."
+User: "I need a system that processes geospatial satellite images — it has to select the right bands, apply atmospheric correction, run NDVI calculation, and classify land cover. The tools keep failing with wrong parameters."
 
 Approach:
-1. Define four agents: Retriever (checks memory for past CSV pipeline experiences), Orchestrator (splits into validate/transform/load sub-goals), Executor (runs each step), Judge (checks row counts, schema match, null rates)
-2. Create a memory bank JSON file at `./memory_bank.json`
-3. Orchestrator decomposes: Sub-goal 1 = validate schema + check nulls, Sub-goal 2 = apply transformations, Sub-goal 3 = load into target
-4. For each sub-goal, run 3 variants with different tool configs (e.g., pandas vs. polars, strict vs. lenient null handling)
-5. Judge evaluates: did output schema match target? Are row counts preserved? Any data loss?
-6. Distill: store the winning tool chain ("polars read_csv with `null_values=['NA','']` + schema enforcement") and failure patterns ("pandas silently coerced dates to strings when timezone info present")
-
-Output structure:
-```
-memory_bank.json entry:
+1. Define four GeoEvolver agents: Retriever queries a JSON memory bank, Orchestrator decomposes into sub-goals (band selection, atmospheric correction, NDVI, classification), Executors call the geospatial tools, Judge validates outputs.
+2. Structure the memory bank:
+```json
 {
-  "query_text": "Process CSV with mixed date formats into warehouse",
-  "outcome": "success",
-  "sub_goal": "validate_and_parse_dates",
-  "tool_chain": ["polars.read_csv(try_parse_dates=True)", "polars.cast(Date)"],
-  "analysis_pattern": "Use polars with try_parse_dates for mixed ISO/US date formats. Validate with .null_count() after parse.",
-  "failure_cause": null,
-  "corrective_guardrail": null
+  "entries": [
+    {
+      "source_id": "task_042",
+      "pattern_type": "analysis_pattern",
+      "title": "Sentinel-2 NDVI band selection",
+      "content": "For Sentinel-2 L2A, use Band 4 (Red, 10m) and Band 8 (NIR, 10m). Do NOT use Band 8A (20m) as resolution mismatch causes silent errors in NDVI calculation.",
+      "tool_sequence": ["band_selector", "ndvi_calculator"],
+      "parameter_snapshot": {"red_band": "B04", "nir_band": "B08", "resolution": "10m"},
+      "embedding": [0.12, -0.34, ...]
+    },
+    {
+      "source_id": "task_037",
+      "pattern_type": "error_attribution",
+      "title": "Atmospheric correction CRS mismatch",
+      "content": "sen2cor fails silently when input CRS is WGS84 geographic. Must reproject to UTM zone first. Symptom: output raster has all-zero reflectance values.",
+      "tool_sequence": ["reproject", "sen2cor"],
+      "parameter_snapshot": {"target_crs": "EPSG:32633"},
+      "embedding": [0.45, 0.11, ...]
+    }
+  ]
+}
+```
+3. On a new query, the retriever finds the relevant band selection pattern and CRS error attribution, injecting them into the orchestrator's context so it plans the correct sub-goals with guardrails.
+
+Output: A Python system with `retriever.py`, `orchestrator.py`, `executor.py`, `judge.py`, and `memory_bank.json` that self-improves with each processed image.
+
+---
+
+**Example 2: Adding Experience Memory to an Existing LangChain Agent**
+
+User: "I have a LangChain agent that calls APIs to process financial data but it keeps misconfiguring date formats and pagination parameters. Can you add learning from failures?"
+
+Approach:
+1. Create an `ExperienceMemory` class wrapping a vector store (FAISS or ChromaDB):
+```python
+class ExperienceMemory:
+    def __init__(self, db_path: str):
+        self.store = load_or_create_vectorstore(db_path)
+
+    def retrieve(self, query: str, k: int = 5) -> list[MemoryEntry]:
+        results = self.store.similarity_search(query, k=k)
+        return [MemoryEntry.from_document(doc) for doc in results]
+
+    def distill_success(self, query: str, trajectory: list[ToolCall]) -> MemoryEntry:
+        pattern = extract_analysis_pattern(query, trajectory)
+        self.store.add_documents([pattern.to_document()])
+        return pattern
+
+    def distill_failure(self, query: str, trajectory: list[ToolCall], error: str) -> MemoryEntry:
+        attribution = extract_root_cause(query, trajectory, error)
+        self.store.add_documents([attribution.to_document()])
+        return attribution
+```
+2. Wrap the existing agent's `invoke()` to run K=2 parallel attempts, each injecting retrieved experience into the system prompt.
+3. After each task, the judge evaluates whether the financial data output is valid (correct date range, complete pagination, matching totals), then distills the outcome.
+
+Output: The agent learns entries like "Bloomberg API requires ISO-8601 dates with timezone (2024-01-15T00:00:00Z), not YYYY-MM-DD" and "pagination cursor must be passed as header X-Next-Page, not query parameter" — and stops making these mistakes on future queries.
+
+---
+
+**Example 3: Contrastive Memory Distillation Across Parallel Variants**
+
+User: "My CI/CD pipeline agent tries different deployment configurations but I want it to learn which patterns work reliably."
+
+Approach:
+1. Run K=3 parallel deployment variants with different configurations (e.g., different resource limits, health check intervals, rollout strategies).
+2. Judge evaluates each: Variant 1 succeeds (gradual rollout, 30s health check), Variant 2 fails (immediate rollout, pod crash loop), Variant 3 succeeds (gradual rollout, 15s health check).
+3. Contrastive distillation compares all three:
+```json
+{
+  "pattern_type": "analysis_pattern",
+  "title": "Kubernetes deployment rollout invariant",
+  "content": "Gradual rollout strategy (maxSurge=1, maxUnavailable=0) is required for services with startup latency >10s. Both successful variants used gradual rollout; the failure used immediate rollout causing crash loops during health check window.",
+  "workflow_invariants": ["strategy=RollingUpdate", "maxUnavailable=0"],
+  "failure_modes": [{"symptom": "CrashLoopBackOff", "cause": "immediate rollout + slow startup", "fix": "use gradual rollout with maxSurge=1"}]
 }
 ```
 
-**Example 2: DevOps deployment pipeline with failure learning**
-
-User: "Create an agent system that deploys services to Kubernetes and learns from deployment failures to suggest better configurations next time."
-
-Approach:
-1. Retriever checks memory bank for past deployment experiences matching the service type
-2. Orchestrator decomposes: Sub-goal 1 = build container image, Sub-goal 2 = run pre-deploy checks (lint manifests, dry-run), Sub-goal 3 = apply to cluster, Sub-goal 4 = verify health
-3. For sub-goal 3, explore variants: rolling update vs. blue-green, different resource limits, different readiness probe configs
-4. Judge evaluates: pods healthy? Rollout complete? No OOMKills within 60s?
-5. On failure (e.g., OOMKilled), extract root cause: "memory limit 256Mi insufficient for Java service with default heap; corrective guardrail: set memory limit >= 512Mi for JVM workloads or add -XX:MaxRAMPercentage=75"
-6. Next deployment of a similar Java service retrieves this experience and applies the guardrail as a hint
-
-Output structure:
-```
-memory_bank.json entry:
-{
-  "query_text": "Deploy Java Spring Boot service to k8s",
-  "outcome": "failure",
-  "sub_goal": "apply_to_cluster",
-  "tool_chain": ["kubectl apply -f deployment.yaml", "kubectl rollout status"],
-  "analysis_pattern": null,
-  "failure_cause": "OOMKilled: container memory limit 256Mi < JVM default heap. Pod restarted 3x in 60s.",
-  "corrective_guardrail": "For JVM workloads: set resources.limits.memory >= 512Mi AND add env JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75"
-}
-```
-
-**Example 3: Multi-step API integration agent**
-
-User: "Build an agent that integrates data from multiple REST APIs, learns which parameter combinations work, and avoids rate-limit errors it has seen before."
-
-Approach:
-1. Retriever fetches past API integration experiences for similar endpoint patterns
-2. Orchestrator decomposes by API source: Sub-goal 1 = fetch from API-A with pagination, Sub-goal 2 = fetch from API-B with auth refresh, Sub-goal 3 = merge and deduplicate results
-3. For sub-goal 1, explore K=3 variants: offset-based pagination vs. cursor-based, batch sizes of 50/100/200
-4. Judge evaluates: complete data fetched? No 429 errors? Response times acceptable?
-5. Distill: "API-A cursor pagination with batch=100 avoids 429s; offset pagination with batch=200 triggers rate limit after page 15. Always include Retry-After header handling."
-6. Future similar queries start with batch=100 + cursor pagination as the default strategy
+Output: Future deployments retrieve this invariant and the orchestrator plans gradual rollouts by default for services with known startup latency.
 
 ## Best Practices
 
-**Do:**
-- Store experiences at the sub-goal level, not the full pipeline level -- granular entries are more reusable across different task compositions
-- Use retrieved experiences as high-level hints in prompts, not as literal parameter templates -- agents should adapt, not copy
-- Include both success patterns AND failure attributions in the memory bank -- failure guardrails are often more valuable than success templates
-- Deduplicate memory entries by canonical key (sub-goal type + tool chain hash) to prevent the bank from growing unboundedly
-- Run at least K=3 parallel exploration variants for non-trivial sub-goals -- single-shot execution misses better configurations
-
-**Avoid:**
-- Do not create inter-dependent sub-goals -- the entire architecture relies on sub-goals executing independently in parallel
-- Do not inject retrieved experiences as rigid instructions -- phrase them as "consider this pattern" not "always do this"
-- Do not skip the Judge evaluation step -- without binary success labels, the memory bank accumulates unverified patterns that degrade future performance
-- Do not store raw trajectories in memory -- distill them into concise patterns and guardrails to keep retrieval efficient and context windows manageable
+- **Do**: Make sub-goals truly independent with explicit I/O contracts. The power of the architecture comes from failure localization — if sub-goals are coupled, a failure in one corrupts the diagnosis of another.
+- **Do**: Store both successes AND failures in the memory bank. Error attributions with root-cause analysis are often more valuable than success patterns because they encode specific constraints the LLM would otherwise violate repeatedly.
+- **Do**: Use contrastive distillation across parallel variants, not just single-variant extraction. Comparing what diverged between success and failure reveals causal factors that single-trace analysis misses.
+- **Do**: Keep memory entries fine-grained and tool-specific (e.g., "parameter X must be format Y for tool Z") rather than high-level (e.g., "be careful with parameters"). The paper shows tool-level expertise is what drives the 12% improvement.
+- **Avoid**: Skipping the leakage filter during retrieval. If memory entries contain fragments of expected outputs, the system shortcuts reasoning and becomes brittle on novel inputs.
+- **Avoid**: Setting K (parallel variants) and A (retry attempts) too high simultaneously. This creates exponential compute cost. Start with K=2, A=2 and scale based on domain error rates. The paper shows moderate settings balance performance and cost.
+- **Avoid**: Treating working memory and the persistent memory bank as the same thing. Working memory (`H_t`) is episode-specific compressed context that prevents context overflow; the memory bank is the persistent cross-episode knowledge store.
 
 ## Error Handling
 
-| Failure Mode | Detection | Recovery |
-|---|---|---|
-| All K variants fail for a sub-goal | Judge returns `success=false` for all K | Log root cause from the variant that got furthest; store as failure entry; surface specific error to user with the corrective guardrail |
-| Memory bank retrieves irrelevant experiences | Cosine similarity below threshold (e.g., < 0.6) | Fall back to zero-experience mode; execute without retrieved context rather than using misleading hints |
-| Sub-goal decomposition produces dependent goals | Orchestrator outputs goals referencing each other's outputs | Re-prompt Orchestrator with explicit constraint: "Each sub-goal must be independently executable with only the original query input" |
-| Memory bank grows too large for retrieval quality | Retrieval latency increases; duplicate patterns dilute relevance | Run periodic deduplication and prune entries older than N days with low retrieval frequency |
-| Corrective guardrail contradicts current context | Retrieved failure guardrail applies to a different version/config | Timestamp all entries; weight recent entries higher in retrieval scoring; discard entries older than a configurable TTL |
+- **Silent propagation errors**: The most dangerous failure mode. Implement per-sub-goal validation in the Judge — do not rely solely on end-to-end output checks. If a sub-goal produces output in the wrong format or with invalid values, catch it before it feeds into the next sub-goal.
+- **Memory bank poisoning**: If a flawed execution is mistakenly labeled successful, the distilled pattern becomes a persistent bad demonstration. Mitigate by requiring the Judge to run deterministic validation checks (schema validation, range checks, known-answer tests) in addition to LLM-based evaluation.
+- **Retrieval irrelevance**: If the memory bank grows large with diverse entries, top-k retrieval may return entries from unrelated domains. Use metadata filtering (tool names, domain tags) before embedding similarity search to narrow the candidate set.
+- **Context overflow**: Long-horizon tasks with many sub-goals can exceed context limits. Use the working memory compression strategy: summarize older interactions with `summarize(H_{t-1})` and keep only the L most recent raw tool calls.
+- **Variant divergence**: If all K variants fail, the contrastive distillation may not yield useful invariants. In this case, fall back to single-variant error attribution from the variant that got furthest, and flag the query for human review.
 
 ## Limitations
 
-- **Cold start**: The memory bank starts empty. First executions have no retrieved experiences and perform at baseline LLM capability. Expect the system to reach useful memory density after 20-50 diverse task executions.
-- **Domain transfer**: Experiences stored from one domain (e.g., geospatial tool chains) do not transfer to unrelated domains (e.g., financial APIs). Each domain needs its own memory bank.
-- **Context window pressure**: Retrieved experiences consume prompt tokens. With large memory banks and high-k retrieval, the context budget for actual execution shrinks. Keep k low (3-7) and entries concise.
-- **No causal reasoning**: The memory bank stores correlations (this tool chain worked / failed), not causal models. If the underlying environment changes (API versioned, tool updated), stored experiences may become stale or harmful.
-- **Parallel variant cost**: Running K variants per sub-goal multiplies API/compute cost by K. For cost-sensitive applications, reduce K to 2 or use variants only for sub-goals with low historical success rates.
+- **Cold start**: The memory bank starts empty. The first several queries won't benefit from retrieval and may perform at baseline agent level. Consider seeding the memory bank with manually curated patterns for critical tool constraints.
+- **Compute cost**: K parallel variants each running A retries means up to K*A*N total tool executions per query. For expensive tools (large model inference, paid APIs), this may be prohibitive. Use K=1 with A=2 for cost-sensitive deployments.
+- **Domain transfer**: Memory entries are domain-specific. Patterns learned for geospatial tools don't transfer to financial API tools. Maintain separate memory banks per domain or use strong metadata filtering.
+- **LLM backbone dependency**: The paper shows smaller models benefit disproportionately (+89% for Qwen3-32B vs. +14% for DeepSeek-V3.1), but the orchestrator still requires a model capable of structured decomposition. Very small models may not decompose sub-goals reliably.
+- **Evaluation quality ceiling**: The Judge's accuracy bounds the entire system. If the Judge cannot reliably distinguish correct from incorrect sub-goal outputs (e.g., in domains requiring deep expertise), the memory bank accumulates noise.
 
 ## Reference
 
-**Paper**: [Experience-Driven Multi-Agent Systems Are Training-free Context-aware Earth Observers](https://arxiv.org/abs/2602.02559v1) (Dai et al., 2026). Look for: the four-operator pipeline (Retriever, Orchestrator, Executor, Judge), the contrast-driven experience extraction mechanism, and the empirical results showing 12% average gain across three EO benchmarks without any parameter updates.
+**Paper**: [Experience-Driven Multi-Agent Systems Are Training-free Context-aware Earth Observers](https://arxiv.org/abs/2602.02559v1) (Dai et al., 2026). Look for: Algorithm 1 (full GeoEvolver pseudocode), Table 2 (cross-backbone results showing the 12% average gain), the ablation in Table 4 (component contributions — contrastive distillation is the single most impactful component at +21.87pp), and the hyperparameter sensitivity analysis showing K*N interaction effects.
