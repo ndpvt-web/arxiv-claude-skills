@@ -1,91 +1,205 @@
 ---
 name: "ai-agent-for-reverseengineering"
-description: "To facilitate the transformation of legacy finite difference implementations into the Devito environment, this study develops an integrated AI agent framework. Implements techniques from 'AI Agent for Reverse-Engineering Legacy Finite-Difference Code and Translating to Devito'. Use for tasks involving: code generation, code analysis, code transformation, data processing. Triggers: \"Write a function that...\", \"Generate a REST API for...\", \"Review this code for bugs\", \"Find security vulnerabilities in...\", \"Refactor this to use...\", \"Migrate this from X to Y\""
+description: >
+  Reverse-engineer legacy numerical/scientific Fortran or C code and translate it into modern
+  Python frameworks (Devito, NumPy, SciPy, FEniCS, etc.) using a multi-stage analysis pipeline
+  with knowledge-graph-guided retrieval, structured code synthesis, and iterative validation.
+  Trigger phrases: "convert this Fortran code to Python", "reverse engineer this finite difference code",
+  "translate this legacy numerical solver to Devito", "modernize this scientific computing code",
+  "what does this Fortran stencil do and how do I write it in Python",
+  "migrate this CFD solver from Fortran to a modern framework"
 ---
 
-# AI Agent for Reverse-Engineering Legacy Finite-Difference Code and Translating to Devito
+# Reverse-Engineering Legacy Scientific Code and Translating to Modern Frameworks
 
-You are a code generation specialist. You transform natural language specifications into clean, idiomatic, production-ready code.
+This skill enables Claude to systematically reverse-engineer legacy finite-difference and numerical
+simulation code (Fortran, C, or older scientific codebases) and translate it into modern Python-based
+frameworks such as Devito, NumPy/SciPy, or FEniCS. The approach follows the multi-stage pipeline from
+Hou & Yang (2026): static analysis to extract computational structure, knowledge-graph-organized
+retrieval to map legacy patterns onto target framework APIs, Pydantic-style constrained code synthesis
+to produce correct output, and multi-dimensional validation covering execution correctness, mathematical
+consistency, and API compliance.
 
-**Paper:** [2601.18381v1](https://arxiv.org/abs/2601.18381v1) | **Category:** cs.AI | **Published:** 2026-01-26
-**Authors:** Yinghan Hou, Zongyou Yang
+## When to Use
 
-## Research Context
+- When the user provides Fortran, C, or MATLAB finite-difference code and asks to rewrite it in Python/Devito
+- When the user wants to understand what a legacy numerical stencil computes (reverse engineering)
+- When translating a seismic wave simulation, CFD solver, or heat equation solver from a legacy language to a modern symbolic PDE framework
+- When the user asks to "modernize" or "migrate" scientific computing code with explicit loop-based array operations to vectorized or symbolic equivalents
+- When the user needs to verify that a translated numerical code preserves the original mathematical formulation
+- When refactoring a large legacy Fortran codebase and needing to understand module-level dependencies before rewriting
 
-> To facilitate the transformation of legacy finite difference implementations into the Devito environment, this study develops an integrated AI agent framework. Retrieval-Augmented Generation (RAG) and open-source Large Language Models are combined through multi-stage iterative workflows in the system's hybrid LangGraph architecture. The agent constructs an extensive Devito knowledge graph through document parsing, structure-aware segmentation, extraction of entity relationships, and Leiden-based community detection. GraphRAG optimisation enhances query performance across semantic communities that include seismic wave simulation, computational fluid dynamics, and performance tuning libraries. A reverse engineering component derives three-level query strategies for RAG retrieval through static analysis of Fortran source code. To deliver precise contextual information for language model guidance, the multi-stage retrieval pipeline performs parallel searching, concept expansion, community-scale retrieval, and semantic similarity analysis. Code synthesis is governed by Pydantic-based constraints to guarantee structured outputs and reliability. A comprehensive validation framework integrates conventional static analysis with the G-Eval approach, covering execution correctness, structural soundness, mathematical consistency, and API compliance. The overall agent workflow is implemented on the LangGraph framework and adopts concurrent processing to support quality-based iterative refinement and state-aware dynamic routing. The principal contribution lies in the incorporation of feedback mechanisms motivated by reinforcement learning, enabling a transition from static code translation toward dynamic and adaptive analytical behavior.
+## Key Technique
 
-## Workflow
+**Multi-stage reverse engineering with structured retrieval and constrained synthesis.** The core insight
+from Hou & Yang is that naive LLM-based code translation fails on scientific code because finite-difference
+stencils encode implicit mathematical relationships (PDEs, boundary conditions, stability constraints) that
+are not apparent from syntax alone. The solution is a three-level analysis pipeline: (1) function-level
+static analysis to identify computational kernels and stencil patterns, (2) module-level analysis to
+capture data flow and organizational structure, and (3) codebase-level dependency mapping across files.
 
-Apply the techniques from this research using the following process:
+**Knowledge-graph-guided retrieval for target framework mapping.** Rather than relying on the LLM's
+parametric knowledge of the target framework, the approach builds a structured knowledge graph of the
+target API (e.g., Devito's `Function`, `TimeFunction`, `Eq`, `Operator` classes) organized into semantic
+communities via Leiden clustering. When translating a specific stencil, the system retrieves the most
+relevant API patterns from the correct community (e.g., seismic simulation vs. CFD vs. performance
+tuning), then expands the query with related concepts to capture edge cases like boundary handling or
+subdomain specifications.
 
-1. Parse and clarify the user's requirements -- ask for language, framework, and constraints if ambiguous
-2. Break the problem into logical components (functions, classes, modules)
-3. Generate code incrementally, explaining architectural decisions
-4. Add comprehensive error handling, input validation, and edge-case coverage
-5. Include type annotations, docstrings, and inline comments for non-obvious logic
-6. Run or suggest tests to verify correctness
+**Iterative validation with feedback-driven refinement.** Generated code is validated across four
+dimensions: execution correctness (does it run?), structural soundness (does it follow framework idioms?),
+mathematical consistency (does it implement the same PDE discretization?), and API compliance (does it
+use the target framework correctly?). When validation fails, the specific failure dimension feeds back
+into retrieval weighting, causing the system to pull more context from the relevant knowledge community
+on the next iteration. This transforms static translation into an adaptive refinement loop.
 
-### Additional: You are a code analysis and review expert
+## Step-by-Step Workflow
 
-1. Read the target code thoroughly, understanding its purpose and context
-2. Check for correctness bugs: off-by-one errors, null dereferences, race conditions, resource leaks
-3. Scan for security vulnerabilities: injection flaws, broken auth, sensitive data exposure (OWASP Top 10)
-4. Evaluate performance: unnecessary allocations, O(n^2) loops, missing caching opportunities
+1. **Parse the legacy source code statically.** Identify all subroutines/functions, their call graph, array declarations with dimensions, loop nests, and index arithmetic. For Fortran, pay special attention to COMMON blocks, IMPLICIT typing, and column-major array ordering. Produce a structured inventory: `{function_name, arguments, array_accesses, loop_bounds, stencil_offsets}`.
 
-### Additional: You are a code transformation specialist
+2. **Extract the computational stencil from each kernel.** For every nested loop that updates an array, determine the stencil shape by collecting all relative index offsets (e.g., `u(i-1,j)`, `u(i+1,j)`, `u(i,j-1)`, `u(i,j+1)` indicates a 5-point Laplacian). Record the coefficients multiplying each offset to reconstruct the finite-difference weights.
 
-1. Understand the existing code's behavior via reading and (if possible) running tests
-2. Identify the transformation goal: refactor, language migration, framework upgrade, pattern change
-3. Plan the transformation step-by-step, noting breaking-change risks
-4. Apply transformations incrementally -- small, verifiable steps
+3. **Identify the governing PDE and discretization scheme.** From the stencil weights, spatial dimensions, and time-stepping structure, determine which PDE is being solved (wave equation, heat equation, Navier-Stokes, etc.) and the discretization order (second-order central differences, fourth-order, upwind, etc.). Document the CFL condition or stability constraints if present.
 
-## Approach Selection
+4. **Map boundary conditions and initial conditions.** Analyze code outside the main stencil loops for boundary handling: Dirichlet (fixed values), Neumann (gradient conditions), absorbing boundaries (PML, sponge layers), or periodic wrapping. Record these as structured constraints.
 
-Determine the appropriate approach based on the user's request:
+5. **Build a target-framework knowledge map.** For the target framework (Devito, NumPy, FEniCS, etc.), organize the relevant API into categories: grid/mesh construction, field variable declaration, equation specification, operator compilation, boundary condition application, and time-stepping control. If using Devito, map: `Grid` for domain, `TimeFunction`/`Function` for fields, `Eq` for stencil equations, `Operator` for compiled kernels.
 
-**Code Generation task?** Parse and clarify the user's requirements -- ask for language, framework, and constraints if ambiguous
-**Code Analysis task?** Read the target code thoroughly, understanding its purpose and context
-**Code Transformation task?** Understand the existing code's behavior via reading and (if possible) running tests
-**Data Processing task?** Identify the input format and schema (CSV, JSON, PDF, HTML, XML, database)
+6. **Translate each component using constrained synthesis.** Generate the target code component by component, enforcing structural constraints: (a) grid dimensions must match the original, (b) stencil order must match extracted weights, (c) boundary conditions must be explicitly applied, (d) time-stepping loop structure must preserve the original update sequence. Use Pydantic-style validation schemas to verify each component before assembly.
 
-## Quality Checklist
+7. **Assemble the full translated program.** Combine grid setup, field initialization, equation definitions, boundary conditions, and the time-stepping driver into a complete runnable script. Preserve the original code's I/O structure (reading input parameters, writing output snapshots) adapted to Python conventions.
 
-Before delivering results, verify:
+8. **Validate across four dimensions.** Run the translated code and check: (a) *Execution*: does it run without errors? (b) *Structure*: does it follow target framework idioms (no raw NumPy loops where symbolic operators should be used)? (c) *Mathematics*: do the stencil coefficients match the original discretization order? (d) *API compliance*: are framework-specific objects used correctly (e.g., Devito `Operator` vs. manual loops)?
 
-- [ ] Code compiles/runs without errors
-- [ ] Follows language-specific style guides (PEP 8, Airbnb JS, etc.)
-- [ ] No hardcoded secrets, credentials, or magic numbers
-- [ ] Error messages are descriptive and actionable
-- [ ] Public APIs have complete documentation
-- [ ] Every finding includes a specific fix recommendation
-- [ ] False positives are minimized by checking context
+9. **Iterate on failures with targeted retrieval.** If validation fails on a specific dimension, refine that component. For mathematical failures, re-examine the stencil extraction. For API failures, retrieve more framework documentation for the specific construct that failed. For execution failures, check array shapes, index ordering (column-major vs. row-major), and off-by-one errors in loop bounds.
 
-## When to Use This Skill
+10. **Document the translation mapping.** Produce a summary table mapping each original Fortran subroutine to its Python equivalent, noting any semantic changes (e.g., 1-based to 0-based indexing, column-major to row-major array layout, explicit loops to symbolic operators).
 
-This skill is triggered by requests such as:
+## Concrete Examples
 
-- "Write a function that..."
-- "Generate a REST API for..."
-- "Review this code for bugs"
-- "Find security vulnerabilities in..."
-- "Refactor this to use..."
-- "Migrate this from X to Y"
-- "Parse this CSV and..."
-- "Extract data from this PDF"
+**Example 1: Fortran 2D acoustic wave equation to Devito**
 
-## Practical Application
+User: "Convert this Fortran code to Devito:"
+```fortran
+do it = 1, nt
+  do j = 2, ny-1
+    do i = 2, nx-1
+      u_new(i,j) = 2*u(i,j) - u_old(i,j) + &
+        (dt**2 * v(i,j)**2) * ( &
+          (u(i+1,j) - 2*u(i,j) + u(i-1,j))/dx**2 + &
+          (u(i,j+1) - 2*u(i,j) + u(i,j-1))/dy**2 )
+    end do
+  end do
+  u_old = u
+  u = u_new
+end do
+```
 
-When applying the techniques from this paper:
+Approach:
+1. Extract stencil: 5-point Laplacian with offsets `[-1,0], [+1,0], [0,-1], [0,+1]`, coefficients `[1,-2,1]/dx^2` in x and `[1,-2,1]/dy^2` in y. This is the 2nd-order central difference for the 2D acoustic wave equation `d2u/dt2 = v^2 * (d2u/dx2 + d2u/dy2)`.
+2. Identify time discretization: 2nd-order explicit leapfrog (`2*u - u_old + dt^2 * ...`).
+3. Boundary conditions: implicit zero-Dirichlet (loops start at index 2, end at n-1).
+4. Translate to Devito symbolic API.
 
-1. **Understand the problem context** -- The paper addresses to facilitate the transformation of legacy finite difference implementations into the devito environment, this study develops an integrated ai agent framework.
-2. **Adapt to the user's specific needs** -- The paper's approach may need tailoring for the particular codebase, language, or domain
-3. **Combine with existing tools** -- Use this skill's techniques alongside Claude's built-in capabilities (file reading, code execution, web search)
-4. **Iterate and refine** -- Apply the technique, evaluate results, and refine the approach based on feedback
+Output:
+```python
+from devito import Grid, TimeFunction, Function, Eq, Operator
+
+grid = Grid(shape=(nx, ny), extent=(nx*dx, ny*dy))
+u = TimeFunction(name='u', grid=grid, time_order=2, space_order=2)
+v = Function(name='v', grid=grid)
+v.data[:] = velocity_model  # load from original input
+
+pde = u.dt2 - v**2 * (u.dx2 + u.dy2)
+stencil = Eq(u.forward, solve(pde, u.forward))
+
+op = Operator([stencil])
+op.apply(time_M=nt-1, dt=dt)
+```
+
+**Example 2: Understanding and documenting a legacy Fortran stencil**
+
+User: "What does this Fortran code compute?"
+```fortran
+do j = 2, ny-1
+  do i = 2, nx-1
+    phi_new(i,j) = 0.25*(phi(i+1,j)+phi(i-1,j)+phi(i,j+1)+phi(i,j-1))
+  end do
+end do
+```
+
+Approach:
+1. Extract stencil: 4 neighbors with equal weight 0.25, no self-term.
+2. Recognize pattern: Jacobi iteration for the 2D Laplace equation `d2phi/dx2 + d2phi/dy2 = 0`.
+3. Confirm: averaging the 4 neighbors is the standard Jacobi relaxation update.
+
+Output:
+```
+This is a single Jacobi iteration step for solving the 2D Laplace equation
+(nabla^2 phi = 0) on a uniform grid. Each interior point is replaced by the
+average of its 4 neighbors. The loop excludes boundaries (indices 2 to n-1
+in Fortran 1-based indexing), implying Dirichlet boundary conditions held
+fixed at the array edges.
+
+To converge, this must be wrapped in an outer iteration loop checking
+a residual tolerance (e.g., max|phi_new - phi| < epsilon).
+```
+
+**Example 3: Translating a 1D advection scheme with upwind differencing**
+
+User: "Translate this C finite-difference code to NumPy:"
+```c
+for (int n = 0; n < nt; n++) {
+    for (int i = 1; i < nx; i++) {
+        u_new[i] = u[i] - c * dt / dx * (u[i] - u[i-1]);
+    }
+    memcpy(u, u_new, nx * sizeof(double));
+}
+```
+
+Approach:
+1. Extract stencil: backward difference `(u[i] - u[i-1])/dx`, first-order upwind for advection equation `du/dt + c*du/dx = 0`.
+2. Note: loop starts at `i=1`, so `u[0]` is a fixed inflow boundary.
+3. Translate using NumPy vectorized slicing instead of explicit loops.
+
+Output:
+```python
+import numpy as np
+
+u = u_initial.copy()
+courant = c * dt / dx  # CFL number, must be <= 1 for stability
+
+for n in range(nt):
+    u[1:] = u[1:] - courant * (u[1:] - u[:-1])
+    # u[0] remains fixed (inflow Dirichlet BC)
+```
+
+## Best Practices
+
+- **Do:** Always extract and verify stencil coefficients before translating. A single wrong sign or missing factor of 2 changes the PDE being solved.
+- **Do:** Account for indexing convention differences. Fortran is 1-based and column-major; Python/C is 0-based and row-major. Transpose array layouts when the original code uses column-major access patterns for performance.
+- **Do:** Preserve the time-stepping order. If the original uses leapfrog (3-level), don't silently convert to forward Euler (2-level) -- the stability properties change entirely.
+- **Do:** Validate the CFL number constraint. If the original code had `dt <= dx / v_max`, the translated code must enforce the same condition.
+- **Avoid:** Blindly converting explicit Fortran loops into Python loops. Use vectorized NumPy operations or symbolic framework operators (Devito `Operator`, FEniCS `solve`) for performance.
+- **Avoid:** Ignoring COMMON blocks, module-level state, or IMPLICIT NONE declarations in Fortran. These define variable types and sharing patterns that affect correctness.
+- **Avoid:** Assuming boundary conditions are "just zeros." Analyze all code paths that modify boundary array elements, including absorbing boundary layers (PML/sponge) which require additional auxiliary fields.
+
+## Error Handling
+
+- **Stencil extraction ambiguity:** When array indexing uses computed offsets (e.g., `u(idx(i)+1, j)`) rather than literal constants, trace the index computation to resolve the actual offsets. If unresolvable, flag to the user and ask for clarification.
+- **Mixed precision issues:** Fortran's `REAL*4` vs `REAL*8` affects numerical stability. Default to `float64` in Python and note where the original used single precision.
+- **Missing boundary code:** If the legacy code relies on array initialization to zero for boundary conditions (common in Fortran), make this explicit in the translation with a comment.
+- **Framework API mismatches:** If the target framework lacks a direct equivalent (e.g., Devito doesn't support a specific boundary type natively), implement it as a manual NumPy operation applied between operator calls, and document the workaround.
+- **Convergence differences:** Iterative solvers (Jacobi, Gauss-Seidel) may converge at different rates due to floating-point ordering differences. Validate against the original's output, not just against the analytical solution.
 
 ## Limitations
 
-- This skill encodes the *approach* from the paper, not a direct implementation of its trained model
-- Results may vary based on the complexity and domain of the specific task
-- For tasks outside the paper's scope, fall back to general-purpose reasoning
+- This approach works best for structured-grid finite-difference codes. Unstructured mesh codes (finite element, finite volume on irregular grids) require different analysis techniques.
+- Legacy codes with heavy preprocessor macros (C `#ifdef` forests, Fortran `cpp` directives) need macro expansion before stencil extraction is reliable.
+- Codes that interleave I/O, MPI communication, and computation in the same loop nest require separating concerns before translation; the stencil extraction assumes clean computational kernels.
+- Implicit solvers (solving linear systems at each timestep) are harder to translate than explicit time-stepping codes, since the solver choice affects the API mapping significantly.
+- Performance equivalence is not guaranteed. The translated code may be slower or faster depending on framework overhead, JIT compilation, and memory layout differences.
 
-Refer to the [full paper](https://arxiv.org/abs/2601.18381v1) for detailed methodology, experimental results, and ablation studies.
+## Reference
+
+Hou, Y. & Yang, Z. (2026). *AI Agent for Reverse-Engineering Legacy Finite-Difference Code and Translating to Devito.* arXiv:2601.18381v1. Key takeaway: the three-level static analysis (function/module/codebase) combined with knowledge-graph-organized retrieval and four-dimensional validation produces reliable translations where single-pass LLM translation fails.

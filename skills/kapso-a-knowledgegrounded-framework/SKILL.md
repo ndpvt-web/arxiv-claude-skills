@@ -1,91 +1,102 @@
 ---
 name: "kapso-a-knowledgegrounded-framework"
-description: "We introduce KAPSO, a modular framework for autonomous program synthesis and optimization. Implements techniques from 'KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization'. Use for tasks involving: code generation, data processing, search retrieval, agent framework. Triggers: \"Write a function that...\", \"Generate a REST API for...\", \"Parse this CSV and...\", \"Extract data from this PDF\", \"Find information about...\", \"Search the codebase for...\""
+description: "We introduce KAPSO, a modular framework for autonomous program synthesis and optimization Implements the KAPSO approach. Use for: code-generation, data-processing, search-retrieval, agent-framework. Triggers: 'generate code for...', 'write a function that...', 'parse this data...', 'extract from...', 'search for...', 'find information about...'"
 ---
 
 # KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization
 
-You are a code generation specialist. You transform natural language specifications into clean, idiomatic, production-ready code.
+This skill implements the approach described in *KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization*. We introduce KAPSO, a modular framework for autonomous program synthesis and optimization.
 
-**Paper:** [2601.21526v2](https://arxiv.org/abs/2601.21526v2) | **Category:** cs.AI | **Published:** 2026-01-29
-**Authors:** Alireza Nadafian, Alireza Mohammadshahi, Majid Yazdani
+**Paper:** [https://arxiv.org/abs/2601.21526v2](https://arxiv.org/abs/2601.21526v2) | **Category:** cs.AI | **Published:** 2026-01-29
+**Code:** [https://github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso)
 
-## Research Context
+## When to Use
 
-> We introduce KAPSO, a modular framework for autonomous program synthesis and optimization. Given a natural language goal and an evaluation method, KAPSO iteratively performs ideation, code synthesis and editing, execution, evaluation, and learning to improve a runnable artifact toward measurable objectives. Rather than treating synthesis as the endpoint, KAPSO uses synthesis as an operator within a long-horizon optimization loop, where progress is defined by evaluator outcomes.   KAPSO targets long-horizon failures common in coding agents, including lost experimental state, brittle debugging, and weak reuse of domain expertise, by integrating three tightly coupled components. First, a git-native experimentation engine isolates each attempt as a branch, producing reproducible artifacts and preserving provenance across iterations. Second, a knowledge system ingests heterogeneous sources, including repositories, internal playbooks, and curated external resources such as documentation, scientific papers, and web search results, and organizes them into a structured representation that supports retrieval over workflows, implementations, and environment constraints. Third, a cognitive memory layer coordinates retrieval and maintains an episodic store of reusable lessons distilled from experiment traces (run logs, diffs, and evaluator feedback), reducing repeated error modes and accelerating convergence.   We evaluated KAPSO on MLE-Bench (Kaggle-style ML competitions) and ALE-Bench (AtCoder heuristic optimization), and report end-to-end performance.   Code Available at: https://github.com/Leeroo-AI/kapso
+- When the user needs to generate code that implements a specific algorithm or pattern from research
+- When extracting, cleaning, or transforming data from various formats
+- When searching, retrieving, and synthesizing information from multiple sources
+- When orchestrating multiple steps or agents to solve a complex problem
 
-## Workflow
+## Core Technique
 
-Apply the techniques from this research using the following process:
+We introduce KAPSO, a modular framework for autonomous program synthesis and optimization.
 
-1. Parse and clarify the user's requirements -- ask for language, framework, and constraints if ambiguous
-2. Break the problem into logical components (functions, classes, modules)
-3. Generate code incrementally, explaining architectural decisions
-4. Add comprehensive error handling, input validation, and edge-case coverage
-5. Include type annotations, docstrings, and inline comments for non-obvious logic
-6. Run or suggest tests to verify correctness
+**Key Results:** Given a natural language goal and an evaluation method, KAPSO iteratively performs ideation, code synthesis and editing, execution, evaluation, and learning to improve a runnable artifact toward measurable objectives.
 
-### Additional: You are a data processing specialist
+## Step-by-Step Workflow
 
-1. Identify the input format and schema (CSV, JSON, PDF, HTML, XML, database)
-2. Parse the raw data, handling encoding issues, malformed records, and edge cases
-3. Clean: remove duplicates, normalize formats, handle missing values
-4. Transform: reshape, aggregate, join, compute derived fields
+1. Parse the user's requirements carefully -- identify language, framework, and constraints
+2. Apply the KAPSO approach to plan the code structure before writing
+3. Break the implementation into logical components (functions, classes, modules)
+4. Generate each component with proper error handling, type annotations, and edge case coverage
+5. Add docstrings and comments only where the logic is non-obvious
+6. Validate the generated code: check for compilation errors, missing imports, and security issues
+7. Test with representative inputs including edge cases
+8. Refine based on test results until the code is production-ready
 
-### Additional: You are a search and retrieval specialist
+## Examples
 
-1. Decompose the user's information need into specific sub-queries
-2. Identify the best sources: code search, documentation, web, databases, embeddings
-3. Execute searches with multiple query formulations for recall
-4. Rank and filter results by relevance, recency, and authority
+**Example 1: Applying the technique to code generation**
 
-## Approach Selection
+```
+User: Use the KAPSO approach to generate a data processing pipeline
 
-Determine the appropriate approach based on the user's request:
+Approach:
+1. Identify the pipeline stages from the user's description
+2. Apply KAPSO's decomposition to design each stage independently
+3. Generate code for each stage with clear interfaces between them
+4. Wire the stages together with error handling at each boundary
+5. Add logging and monitoring hooks for observability
 
-**Code Generation task?** Parse and clarify the user's requirements -- ask for language, framework, and constraints if ambiguous
-**Data Processing task?** Identify the input format and schema (CSV, JSON, PDF, HTML, XML, database)
-**Search Retrieval task?** Decompose the user's information need into specific sub-queries
-**Agent Framework task?** Analyze the task and determine if multi-agent decomposition provides value
+Output: A complete, runnable pipeline with clear stage separation,
+error handling, and documentation for each component.
+```
 
-## Quality Checklist
+**Example 2: Debugging and iteration**
 
-Before delivering results, verify:
+```
+User: The initial approach isn't working well, can you refine it?
 
-- [ ] Code compiles/runs without errors
-- [ ] Follows language-specific style guides (PEP 8, Airbnb JS, etc.)
-- [ ] No hardcoded secrets, credentials, or magic numbers
-- [ ] Error messages are descriptive and actionable
-- [ ] Public APIs have complete documentation
-- [ ] Original data is never modified in place
-- [ ] All parsing errors are logged with row/record references
+Approach:
+1. Identify where the current approach is falling short
+2. Consult the paper's ablation studies for guidance on what matters most
+3. Adjust parameters or approach based on the paper's recommendations
+4. Re-run and compare results
 
-## When to Use This Skill
+Output: An improved solution with explanation of what changed and why,
+referencing the paper's findings about what factors affect performance.
+```
 
-This skill is triggered by requests such as:
+## Best Practices
 
-- "Write a function that..."
-- "Generate a REST API for..."
-- "Parse this CSV and..."
-- "Extract data from this PDF"
-- "Find information about..."
-- "Search the codebase for..."
-- "Build a pipeline that..."
-- "Coordinate multiple tasks to..."
+**Do:**
+- Read the full problem description before applying KAPSO
+- Start with the simplest application of the technique and add complexity incrementally
+- Validate intermediate results at each step of the workflow
+- Adapt the approach to the specific domain rather than applying it rigidly
 
-## Practical Application
+**Avoid:**
+- Applying the technique blindly without understanding the problem context
+- Skipping validation steps to save time -- errors compound quickly
+- Over-engineering the solution beyond what the task requires
+- Ignoring the paper's stated limitations and applying it outside its scope
 
-When applying the techniques from this paper:
+## Error Handling
 
-1. **Understand the problem context** -- The paper addresses we introduce kapso, a modular framework for autonomous program synthesis and optimization.
-2. **Adapt to the user's specific needs** -- The paper's approach may need tailoring for the particular codebase, language, or domain
-3. **Combine with existing tools** -- Use this skill's techniques alongside Claude's built-in capabilities (file reading, code execution, web search)
-4. **Iterate and refine** -- Apply the technique, evaluate results, and refine the approach based on feedback
+- **Technique doesn't apply**: If the problem doesn't match KAPSO's assumptions, fall back to general-purpose reasoning and explain why
+- **Partial results**: If some steps succeed but others fail, present the partial results with clear indication of what's missing
+- **Conflicting information**: When sources disagree, present both sides with evidence and let the user decide
+- **Performance issues**: If the approach is too slow, simplify by reducing the number of decomposition steps
 
 ## Limitations
 
-- This skill encodes the *approach* from the paper, not a direct implementation of its trained model
-- Results may vary based on the complexity and domain of the specific task
-- For tasks outside the paper's scope, fall back to general-purpose reasoning
+- This skill encodes the *methodology* from the paper, not a trained model -- results depend on Claude's general capabilities
+- The paper was evaluated on specific benchmarks; real-world tasks may differ significantly
+- For tasks clearly outside the paper's scope, prefer general-purpose approaches
 
-Refer to the [full paper](https://arxiv.org/abs/2601.21526v2) for detailed methodology, experimental results, and ablation studies.
+## Reference
+
+**[KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization](https://arxiv.org/abs/2601.21526v2)**
+Key finding: Given a natural language goal and an evaluation method, KAPSO iteratively performs ideation, code synthesis and editing, execution, evaluation, and learning to improve a runnable artifact toward measurable objectives.
+Implementation: [https://github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso)
+Look for: methodology section, experimental setup, and ablation studies for tuning guidance.
