@@ -1,187 +1,253 @@
 ---
 name: "internalizing-reasoning-discovery-replay"
-description: "Apply the STIR framework (Self-Distilled Tools for Internal Reasoning) to structure multi-step reasoning tasks using latent action discovery, curation, and replay. Mine successful reasoning sub-paths from exploratory attempts, build a compact library of reusable reasoning primitives, and dynamically inject them to steer future problem-solving. Triggers: 'optimize my reasoning pipeline', 'internalize chain-of-thought', 'discover reasoning patterns', 'build a reasoning tool library', 'reduce verbose reasoning overhead', 'self-distill reasoning strategies'"
+description: "Apply the STIR (Self-Distilled Tools for Internal Reasoning) pattern to build systems that discover reusable reasoning primitives from successful solution traces and dynamically replay them to steer future problem-solving. Use when the user says 'build a reasoning replay system', 'extract reasoning patterns from traces', 'create a latent action library', 'steer reasoning with learned corrections', 'internalize chain-of-thought into activations', or 'dynamic reasoning trajectory control'."
 ---
 
 # Internalizing Reasoning via Discovery and Replay of Latent Actions
 
-This skill teaches Claude to apply the STIR (Self-Distilled Tools for Internal Reasoning) framework from Shi et al. (2026) to real coding and problem-solving tasks. The core idea: instead of generating long explicit chains of thought every time, you **mine successful reasoning sub-paths** from multiple exploratory attempts, **curate them into a compact library of reusable reasoning primitives**, and **replay the best-matching primitive** when facing a new problem. This converts verbose, redundant reasoning into efficient, targeted interventions — achieving better accuracy with fewer tokens.
+This skill teaches Claude to apply the STIR framework (Self-Distilled Tools for Internal Reasoning) from arXiv:2602.04925 to real software systems. The core idea: instead of relying on verbose chain-of-thought at inference time, you can **mine contrastive correction vectors from successful vs. failed reasoning traces**, build a compact library of reusable steering primitives, and **dynamically inject the right correction at each reasoning step** based on the current state. This translates directly into building retrieval-augmented reasoning pipelines, self-improving agent loops, and adaptive few-shot prompt steering systems.
 
-## When to Use This Skill
+## When to Use
 
-- When building an agent or pipeline that solves multi-step reasoning tasks (math, code generation, logic puzzles) and you want to reduce inference cost without losing accuracy
-- When you have a dataset of problems where some rollouts succeed and others fail, and you want to extract *what made the difference* between success and failure
-- When the user asks to "optimize chain-of-thought", "reduce reasoning tokens", or "make my agent think more efficiently"
-- When designing a retrieval-augmented reasoning system that selects and applies reasoning strategies dynamically based on problem context
-- When implementing self-distillation: training a model or agent on its own successful exploration traces
-- When the user wants to build a "reasoning tool library" — a reusable set of problem-solving heuristics extracted from past performance
+- When building an agent that should learn from its own successes and failures across episodes (e.g., a coding agent that gets better at debugging over time)
+- When the user wants to extract reusable reasoning patterns from a corpus of solved problems and apply them to new problems
+- When designing a system that dynamically selects which reasoning strategy to apply at each step of a multi-step task, rather than using one fixed prompt
+- When implementing contrastive self-distillation: mining what distinguishes correct solutions from incorrect ones at the representation level
+- When reducing token cost by replacing explicit chain-of-thought with compact steering signals
+- When the user asks to build a "reasoning memory" or "strategy library" that an LLM can query at inference time
 
 ## Key Technique
 
-**The core insight:** Successful and failed reasoning attempts diverge at specific decision points. By computing the vector difference between centroids of successful vs. failed hidden states at those decision points, you obtain a *steering primitive* — a compact representation of the implicit correction needed to get back on the right track. STIR collects many such primitives, prunes them down to a diverse library, and retrieves + applies the right one at inference time.
+**The problem with static reasoning aids:** A single fixed prompt, system message, or control vector tries to help with every reasoning step equally. But reasoning is non-stationary -- the guidance that helps during problem decomposition actively hurts during verification. A static approach averages over these conflicting needs and underperforms.
 
-**Three-stage pipeline:**
+**STIR's solution -- Discover, Compress, Replay:** The framework operates in two phases. **Offline**, it generates multiple solution attempts (rollouts) per problem, scores them with a length-penalized reward, and computes *steering impulses* -- the vector difference between the average hidden state of successful traces and the average hidden state of failed traces at aligned checkpoints. These impulses capture "what the model needs to do differently at this reasoning stage to succeed." The impulses are then compressed into a diverse, non-redundant library of ~256 tools using determinantal point process (DPP) selection, which maximizes both quality and geometric diversity. **Online**, at each reasoning decision point, the system retrieves candidate steering impulses, runs lightweight counterfactual probes to validate their utility, and applies the best one with confidence-scaled strength -- or abstains entirely if the current trajectory is already optimal (anchor gating).
 
-1. **Discovery** — Sample multiple reasoning rollouts per problem. Score them with a length-penalized reward (correct answer gets credit, verbosity gets penalized). At each structural checkpoint in the reasoning trace, partition rollouts into high-reward and low-reward groups. Compute the centroid difference: `v = centroid(successes) - centroid(failures)`. This vector `v` is the steering impulse — the direction that moves reasoning from failure toward success. Store both correction entries (keyed by failure centroids, linked to `v`) and anchor entries (keyed by success centroids, linked to null — meaning "no intervention needed here").
-
-2. **Curation** — The raw set of discovered primitives is redundant. Apply a Quality-Diversity selection (greedy DPP) that simultaneously maximizes quality scores and geometric diversity. This yields ~256 primitives from potentially thousands of candidates — a compact, orthogonal tool library covering distinct reasoning failure modes.
-
-3. **Replay** — At inference time, extract the current reasoning state, retrieve the top-k matching primitives by cosine similarity, check anchor gating (if the current state already matches a "success" pattern, abstain from intervention), run a short lookahead probe to evaluate each candidate's effect, then inject the best-scoring primitive with adaptive strength. The injection is a simple vector addition to the current state, clipped to prevent over-steering.
-
-**Why this matters for practical coding tasks:** The framework generalizes beyond neural hidden states. Any system where you can represent "reasoning state" as a vector (embeddings of code context, intermediate AST features, test-result encodings) can use the discover-curate-replay loop to build reusable problem-solving strategies from past exploration.
+**Why this matters for software:** The three-phase pattern -- (1) contrastive mining of what works vs. what fails, (2) diverse library construction, (3) dynamic retrieval-and-apply with validation -- is a general architecture applicable to any system where you have traces of successful and failed attempts and want to build adaptive, self-improving behavior.
 
 ## Step-by-Step Workflow
 
-1. **Define the problem space and reward signal.** Identify the class of tasks (e.g., code debugging, math word problems, SQL generation). Define a binary correctness signal plus a verbosity penalty: `R = correctness - eta * (token_count / max_tokens)`. This ensures discovered primitives favor concise correct solutions over verbose ones.
+1. **Collect paired reasoning traces.** For each problem in your training set, generate K rollouts (K=8 is the paper's default). Score each rollout with a reward that combines correctness and brevity: `R(Y) = is_correct(Y) - eta * len(Y) / max_len`. Partition into positive (high-reward) and negative (low-reward) sets.
 
-2. **Generate diverse rollouts.** For each problem in your training set, sample K independent reasoning traces (K=8 is a good default). Use temperature sampling or nucleus sampling to ensure diversity. Record the full trace including intermediate states at structural checkpoints (paragraph breaks, function boundaries, logical transitions).
+2. **Align traces at structural checkpoints.** Identify natural breakpoints in reasoning traces (paragraph boundaries, tool calls, intermediate answers). Align positive and negative traces at these checkpoints so you compare equivalent reasoning stages, not arbitrary token positions.
 
-3. **Partition rollouts at each checkpoint.** At every structural boundary in the reasoning trace, split the K rollouts into a positive set (above-median reward) and negative set (below-median reward). Require a minimum gap between the sets to ensure meaningful signal — skip checkpoints where all rollouts are equally good or bad.
+3. **Compute contrastive steering impulses.** At each aligned checkpoint m, compute the centroid embedding of positive traces (mu_plus) and negative traces (mu_minus). The steering impulse is `v_m = mu_plus - mu_minus`. This vector encodes the implicit correction needed to move from a failing reasoning state to a succeeding one.
 
-4. **Extract steering primitives.** For each valid checkpoint: compute the centroid embedding of positive-set prefixes (`mu+`) and negative-set prefixes (`mu-`). The steering impulse is `v = mu+ - mu-`. Store two memory entries: a *correction entry* keyed by `mu-` with impulse `v`, and an *anchor entry* keyed by `mu+` with null impulse. The anchor entries prevent unnecessary intervention on already-correct reasoning paths.
+4. **Store dual-entry memory units.** For each impulse, create two entries: a *correction entry* keyed by the negative centroid (mu_minus) with the impulse as its payload, and an *anchor entry* keyed by the positive centroid (mu_plus) with a null impulse. Anchors let the system detect when no correction is needed.
 
-5. **Curate the primitive library via Quality-Diversity selection.** From all extracted primitives, run greedy DPP selection: iteratively pick the primitive that maximizes `log(1 + quality_score) + lambda * log(conditional_variance)`. The quality term favors high-reward primitives; the variance term favors primitives that are geometrically distinct from those already selected. Target a library size of 128-256 primitives. L2-normalize all keys for cosine retrieval.
+5. **Build a sparse, diverse tool library.** From all computed impulses, select a compact subset (B=256) using greedy DPP optimization that maximizes `J = sum(log(1 + quality(v))) + lambda * log(det(K + eps*I))`. This ensures the library covers diverse reasoning failure modes without redundancy.
 
-6. **Implement the retrieval-and-replay engine.** At inference time, encode the current reasoning state into the same embedding space as your library keys. Retrieve top-k candidates (k=8) by cosine similarity. Check for anchor dominance: if most retrieved entries are anchors, the current state is already on a good path — abstain from intervention.
+6. **Implement the online Retrieve-Preview-Commit cycle.** At each decision point during inference: (a) **Retrieve** top-k=8 candidate impulses by cosine similarity to the current state embedding. (b) **Preview** each candidate by running a short counterfactual probe (4 tokens) to measure likelihood gain. (c) **Commit** the best candidate if its unified score exceeds the abstention threshold, applying it with clipped, confidence-scaled strength.
 
-7. **Run lookahead probes to validate candidates.** For each non-anchor candidate, simulate a short continuation (4 tokens) with and without the steering impulse applied. Compute the gain as the average log-probability improvement. This prevents applying primitives that looked relevant by key similarity but would actually degrade output quality.
+7. **Implement anchor gating.** If the retrieved candidates are predominantly anchor entries (null impulse), abstain from intervention -- the reasoning trajectory is already on track. This prevents over-correction and preserves good reasoning chains.
 
-8. **Score and inject the best primitive.** Compute a unified score: `S = beta * retrieval_similarity + rho * lookahead_gain`. If the top score exceeds a null-action threshold, inject the primitive: `state = state + clip(scale * S, 0, alpha_max) * impulse_vector`. Otherwise, abstain. The adaptive strength clipping prevents catastrophic over-steering.
+8. **Normalize and index for fast retrieval.** L2-normalize all state keys and store them in a vector index (FAISS, Annoy, or a simple cosine-similarity lookup for small libraries). This makes the online retrieval step sub-millisecond.
 
-9. **Evaluate and iterate.** Measure accuracy and token efficiency on a held-out test set. Compare against baseline (no intervention) and static approaches (single fixed steering vector). Tune the null-action threshold — too low causes over-intervention, too high makes the system too conservative. Good defaults: `beta=2.0, rho=0.1, tau_null=0.3`.
+9. **Evaluate on held-out problems.** Measure both accuracy improvement and token reduction compared to vanilla chain-of-thought. The paper reports +1.9% to +7.5% accuracy with up to 35% fewer tokens.
 
-10. **Transfer and generalize.** Test the library on related but unseen task distributions. STIR primitives often transfer across tasks in the same domain (e.g., AIME math tools work on AMC problems). Expand the library incrementally as you encounter new failure modes.
+10. **Iterate: re-mine impulses on failures.** After deployment, collect new failure traces, compute fresh impulses, and merge them into the library with another round of DPP selection to keep the library compact and current.
 
 ## Concrete Examples
 
-**Example 1: Building a Reasoning Primitive Library for Code Debugging**
+**Example 1: Building a self-improving code debugging agent**
 
 ```
-User: I have an agent that debugs Python code. It generates long reasoning
-traces but often goes in circles. Help me build a reasoning tool library
-using the STIR approach to make it more efficient.
+User: I want my debugging agent to learn from past debugging sessions.
+      When it encounters similar bugs, it should apply strategies that
+      worked before instead of reasoning from scratch every time.
 
 Approach:
-1. Collect 200 buggy Python programs with known fixes. For each, run the
-   debug agent 8 times with temperature=0.7, recording the full reasoning
-   trace and whether it found the correct fix.
+1. Collect paired traces: For 500 past debugging sessions, store both
+   the successful fix path and the failed attempts. Each trace is a
+   sequence of (hypothesis, investigation, result) tuples.
 
-2. At each reasoning boundary (after each "hypothesis" or "test" step),
-   embed the trace prefix using a code-aware encoder (e.g., CodeBERT or
-   the agent's own internal representation).
+2. Align at structural checkpoints: Align traces at each
+   hypothesis-investigation boundary. Compute embeddings of the agent's
+   state (current hypothesis + code context) at each checkpoint.
 
-3. Partition into success/failure sets at each boundary. Extract steering
-   vectors: v = centroid(successful_prefixes) - centroid(failed_prefixes).
-   Store correction entries (keyed by failure centroid) and anchor entries
-   (keyed by success centroid).
+3. Compute steering impulses: For bug category "off-by-one errors,"
+   the impulse at the hypothesis stage might encode "check loop
+   boundary conditions" -- the difference between states where the
+   agent checked boundaries (success) vs. where it didn't (failure).
 
-4. From ~1200 raw primitives, apply QD-DPP to select 200 diverse entries.
-   Common patterns that emerge:
-   - "Check types before logic" primitive (keyed to states where the agent
-     was reasoning about control flow but the bug was a type error)
-   - "Read the error message literally" primitive (keyed to states where
-     the agent was speculating instead of parsing the traceback)
-   - "Isolate the failing line" primitive (keyed to states where the agent
-     was analyzing the whole function instead of narrowing scope)
+4. Build library: Select 50 diverse impulses covering different bug
+   categories using DPP selection.
 
-5. At debug time: encode current reasoning state, retrieve top-8 from
-   library, check anchor gating, probe top candidates, inject the winner.
+5. Online replay: When the agent encounters a new bug, at each
+   reasoning step, retrieve the most relevant impulse and inject it
+   as an additional context block:
 
-Output:
-- Library of 200 curated debug-reasoning primitives stored as JSON:
-  { "key": [0.12, -0.34, ...], "impulse": [0.05, 0.11, ...],
-    "quality": 0.87, "label": "type-check-first", "is_anchor": false }
-- Inference wrapper that queries the library at each reasoning step
-- Expected: 20-35% fewer reasoning tokens, 3-7% accuracy improvement
+   retrieved_strategy = library.retrieve(current_state_embedding, k=3)
+   probe_scores = [probe(s, current_context) for s in retrieved_strategy]
+   if max(probe_scores) > threshold:
+       inject(best_strategy, strength=scaled_confidence)
+   else:
+       proceed_without_intervention()  # anchor gating
+
+Output (library entry example):
+{
+  "id": "debug-042",
+  "trigger_state": "hypothesis_stage:null_pointer_suspicion",
+  "impulse_type": "correction",
+  "strategy": "Check caller chain for uninitialized optional fields
+               before investigating null pointer itself",
+  "confidence": 0.82,
+  "source_problems": ["BUG-1234", "BUG-1891", "BUG-2003"]
+}
 ```
 
-**Example 2: Self-Distilling Math Problem-Solving Strategies**
+**Example 2: Adaptive few-shot prompt selection for math reasoning**
 
 ```
-User: I want to extract reusable math reasoning strategies from a model's
-own successful attempts and replay them on harder problems.
+User: I have a bank of 2000 solved math problems with full
+      chain-of-thought solutions. I want to dynamically pick the
+      best few-shot examples for each new problem instead of using
+      fixed examples.
 
 Approach:
-1. Take 500 competition math problems (AMC/AIME level). For each, generate
-   8 solution attempts. Score: R = correct - 0.1*(tokens/max_tokens).
+1. Generate rollouts: For each of 200 test problems, try 8 different
+   few-shot prompt combinations. Record which led to correct answers
+   and which failed.
 
-2. At each paragraph break in the solution, partition attempts into
-   high-reward (top 4) and low-reward (bottom 4) sets. Compute centroid
-   difference vectors in the model's embedding space.
+2. Embed and align: Embed the problem statement + each few-shot
+   context using a sentence transformer. Align at the point where
+   the model begins its own reasoning.
 
-3. Curate to 256 primitives using greedy QD-DPP (lambda=0.5). Typical
-   discovered primitives:
-   - "Substitute small values" (fires when model is stuck on general case)
-   - "Convert to coordinates" (fires when model is reasoning abstractly
-     about geometry)
-   - "Factor the expression" (fires when model is expanding instead of
-     simplifying)
+3. Compute impulses: For each test problem, compute the centroid of
+   embeddings from successful few-shot contexts minus the centroid
+   from failed contexts. This impulse encodes "what kind of example
+   this problem needs."
 
-4. At test time on new problems: retrieve → gate → probe → inject.
-   Use beta=2.0, rho=0.1, k_scale=0.75, tau_null=0.3.
+4. Build retrieval index:
+   impulse_library = []
+   for problem_type in aligned_checkpoints:
+       pos_centroid = mean(embeddings[successful_contexts])
+       neg_centroid = mean(embeddings[failed_contexts])
+       impulse = pos_centroid - neg_centroid
+       impulse_library.append({
+           "key": neg_centroid,  # triggers on similar "stuck" states
+           "correction": impulse,
+           "recommended_examples": successful_contexts[:3]
+       })
+   library = dppp_select(impulse_library, budget=256)
 
-Output:
-- Primitive library file: math_reasoning_tools.json (256 entries)
-- Evaluation on held-out MATH-500: +4.2% accuracy, -28% token usage
-- Cross-domain transfer test on ARC-Challenge: +1.9% accuracy with
-  zero additional training
-```
-
-**Example 3: Reducing Agent Verbosity in Multi-Step Planning**
-
-```
-User: My task-planning agent writes extremely verbose plans. I want to
-keep accuracy but cut the reasoning length by a third.
-
-Approach:
-1. Collect 300 planning tasks with ground-truth solutions. Generate 8
-   plans each. Score with correctness AND length penalty (eta=0.15).
-
-2. The length penalty ensures high-reward rollouts are both correct AND
-   concise. Steering primitives now point toward concise-correct states,
-   away from verbose-correct or verbose-incorrect states.
-
-3. At discovery time, focus on checkpoints where traces diverge in length:
-   same correctness but different verbosity. The impulse vectors capture
-   "skip unnecessary elaboration" patterns.
-
-4. Curate 128 primitives. Apply during planning with conservative
-   threshold (tau_null=0.4) to avoid cutting essential reasoning.
+5. Online serving: For a new problem, embed it, retrieve the closest
+   impulse, and use its recommended examples as the few-shot context.
+   Run a 4-token probe to confirm the examples help before committing.
 
 Output:
-- Planning stays at 97% accuracy (was 98% — within noise)
-- Token usage drops by 33% on average
-- Largest gains on routine sub-problems where the agent was over-explaining
-  well-known patterns
+  New problem: "Find all primes p such that p^2 + 2 is also prime"
+  Retrieved impulse: "number_theory:parity_argument"
+  Recommended examples: [problem_1447, problem_892, problem_2101]
+  Probe result: +0.34 log-likelihood gain -> COMMIT
+  (vs. static examples which scored +0.08 -> would have been worse)
+```
+
+**Example 3: Implementing the contrastive mining pipeline in Python**
+
+```
+User: Show me how to implement the core contrastive impulse
+      extraction from reasoning traces.
+
+Output:
+import numpy as np
+from sklearn.cluster import KMeans
+from collections import defaultdict
+
+def extract_steering_impulses(traces, reward_fn, eta=0.1):
+    """
+    traces: list of (problem_id, rollout_embeddings[], reward)
+    Returns: list of {key, impulse, anchor_key} dicts
+    """
+    # Group rollouts by problem
+    by_problem = defaultdict(list)
+    for pid, embeddings, reward in traces:
+        by_problem[pid].append((embeddings, reward))
+
+    impulses = []
+    for pid, rollouts in by_problem.items():
+        # Partition into positive and negative sets
+        median_r = np.median([r for _, r in rollouts])
+        pos = [e for e, r in rollouts if r >= median_r]
+        neg = [e for e, r in rollouts if r < median_r]
+
+        if not pos or not neg:
+            continue
+
+        # Align at structural checkpoints (assume pre-aligned)
+        n_checkpoints = min(len(e) for e in pos + neg)
+        for m in range(n_checkpoints):
+            mu_plus = np.mean([e[m] for e in pos], axis=0)
+            mu_minus = np.mean([e[m] for e in neg], axis=0)
+            v_m = mu_plus - mu_minus
+
+            # Normalize key vectors
+            key = mu_minus / (np.linalg.norm(mu_minus) + 1e-8)
+            anchor = mu_plus / (np.linalg.norm(mu_plus) + 1e-8)
+
+            impulses.append({
+                "key": key,           # correction entry
+                "impulse": v_m,
+                "anchor_key": anchor, # anchor entry (null impulse)
+                "problem_id": pid,
+                "checkpoint": m
+            })
+
+    return impulses
+
+
+def dppp_select(impulses, budget=256, lambda_div=0.5):
+    """Select diverse subset via greedy DPP approximation."""
+    keys = np.array([imp["impulse"] for imp in impulses])
+    norms = np.linalg.norm(keys, axis=1)
+    quality = np.log1p(norms)  # quality score
+
+    selected = []
+    remaining = list(range(len(impulses)))
+
+    for _ in range(min(budget, len(impulses))):
+        best_idx, best_score = -1, -float("inf")
+        for i in remaining:
+            # Greedy: quality + diversity from selected set
+            div = 0
+            if selected:
+                sel_keys = keys[selected]
+                sims = sel_keys @ keys[i] / (norms[selected] * norms[i] + 1e-8)
+                div = -lambda_div * np.max(sims)
+            score = quality[i] + div
+            if score > best_score:
+                best_score, best_idx = score, i
+        selected.append(best_idx)
+        remaining.remove(best_idx)
+
+    return [impulses[i] for i in selected]
 ```
 
 ## Best Practices
 
-- **Do:** Use a length-penalized reward signal (`R = correctness - eta * normalized_length`) when discovering primitives. Without the length penalty, you optimize only for correctness and miss the efficiency gains that make STIR valuable.
-- **Do:** Store anchor entries (success-keyed, null-impulse) alongside correction entries. Anchors prevent the system from intervening when reasoning is already on track — this is critical for avoiding regression on easy problems.
-- **Do:** Apply the QD-DPP curation step even if your raw primitive set seems manageable. Redundant primitives cause retrieval confusion and degrade lookahead probe efficiency. Target a library 10-20x smaller than the raw set.
-- **Do:** Tune the null-action threshold (`tau_null`) on a validation set. This single parameter controls the intervention rate and has the largest impact on the accuracy-efficiency tradeoff.
-- **Avoid:** Applying primitives without lookahead validation. Key-similarity retrieval alone has a ~15% false positive rate — the 4-token probe step catches bad matches before they corrupt the reasoning trace.
-- **Avoid:** Using a single global steering vector for all problems. The entire point of STIR is that different problems need different interventions at different points. Static vectors underperform by 3-5% compared to dynamic retrieval.
+- **Do:** Use length-penalized rewards (`R = correctness - eta * length/max_length`) when scoring rollouts. This prevents the library from learning "be verbose" as a strategy, which is the opposite of the internalization goal.
+- **Do:** Always store anchor entries alongside correction entries. Without anchors, the system has no way to detect that the current trajectory is already good, leading to destructive over-correction on problems the model can already solve.
+- **Do:** Run counterfactual probes before committing a steering impulse. A 4-token lookahead that measures log-likelihood gain costs almost nothing but catches cases where retrieval similarity is misleading.
+- **Do:** Re-run DPP selection periodically as you add new impulses. The library should stay compact (256 entries is sufficient for most domains) to keep retrieval fast and avoid redundancy.
+- **Avoid:** Using a single global steering vector for all reasoning steps. The paper shows this underperforms by +1.8% vs. STIR's +6.8% because different reasoning stages need different corrections.
+- **Avoid:** Skipping the alignment step. Comparing embeddings from different reasoning stages (e.g., problem decomposition vs. verification) produces meaningless impulses. Always align traces at structural checkpoints first.
 
 ## Error Handling
 
-- **Primitive library is empty after discovery:** Your rollouts lack sufficient variance. Increase K (number of rollouts), raise the sampling temperature, or use a more diverse problem set. Also check that the minimum centroid gap threshold isn't too strict.
-- **Over-intervention degrades accuracy:** The null-action threshold is too low, or anchor entries are missing. Verify that anchor entries constitute ~40-50% of the library. Raise `tau_null` incrementally by 0.05 until accuracy stabilizes.
-- **Lookahead probes are too expensive:** Reduce `T_probe` from 4 to 2 tokens, or batch candidates more aggressively. On a budget, skip probing and rely on retrieval similarity alone (accept ~2% accuracy trade-off).
-- **Cross-task transfer fails:** The source and target domains are too dissimilar. Primitives transfer well within a domain (AIME → AMC) but poorly across domains (math → code). Build domain-specific libraries.
-- **Library quality degrades over time:** As the model or agent improves, old primitives become stale. Re-run discovery periodically on recent failure cases. Implement a quality decay mechanism that down-weights primitives that haven't been successfully applied recently.
+- **Too few rollouts per problem:** If K < 4, the positive/negative partition becomes noisy. Fall back to a simpler contrastive method (e.g., correct vs. incorrect without length penalty) or increase K.
+- **Degenerate impulses (near-zero norm):** If `||v_m|| < epsilon`, the positive and negative centroids are nearly identical at that checkpoint. Discard these -- they carry no corrective signal.
+- **Retrieval returns only anchors:** This means the current state resembles a successful trajectory. Abstain from intervention. This is correct behavior, not an error.
+- **Probe scores are all negative:** The retrieved impulses would hurt performance. Abstain and let the model reason on its own. Log these cases for later analysis -- they may indicate a gap in the library.
+- **Library drift:** As the problem distribution shifts, old impulses become less relevant. Track hit rates per library entry and prune entries with consistently low retrieval frequency or negative probe scores.
 
 ## Limitations
 
-- Requires multiple rollouts per training problem (K=8 recommended), which means 8x the compute during the offline discovery phase. Not suitable for one-shot learning scenarios.
-- The embedding space must be meaningful — if your state representations don't capture reasoning-relevant features, centroid differences will be noise. Works best with transformer hidden states or high-quality code/text embeddings.
-- Anchor gating assumes that success and failure states are geometrically separable. On problems where correct and incorrect reasoning paths are nearly identical until the final step, the framework provides little benefit.
-- Library size is bounded by retrieval efficiency. Beyond ~512 primitives, cosine similarity retrieval becomes noisy. For very diverse problem spaces, consider hierarchical or domain-partitioned libraries.
-- The technique optimizes for problems where the model *can* solve the task some fraction of the time. If baseline success rate is near 0%, there are no successful rollouts to mine. STIR amplifies existing capability; it does not create new capability from scratch.
+- **Requires paired success/failure traces.** If you only have successful completions (no failures to contrast against), you cannot compute steering impulses. You need at least some variance in outcomes per problem.
+- **Embedding quality is critical.** The entire pipeline depends on meaningful embeddings at structural checkpoints. If your embedding model conflates distinct reasoning states, the impulses will be noisy.
+- **Does not replace chain-of-thought for novel problem types.** The library can only steer toward patterns it has seen. For genuinely novel reasoning challenges outside the training distribution, explicit chain-of-thought remains necessary.
+- **Checkpoint alignment is domain-specific.** The paper uses double-newline boundaries for math reasoning. For code, you might align at function boundaries or tool-call boundaries. Choosing the wrong alignment granularity degrades impulse quality.
+- **Scaling beyond 256 library entries shows diminishing returns.** The DPP selection ensures diversity, but a larger library increases retrieval latency without proportional accuracy gains.
 
 ## Reference
 
-Shi, Z., Zhu, Y., Shi, J., Zhang, X., & Wang, L. (2026). *Internalizing LLM Reasoning via Discovery and Replay of Latent Actions.* arXiv:2602.04925v1. [https://arxiv.org/abs/2602.04925v1](https://arxiv.org/abs/2602.04925v1)
-
-Key sections to study: Algorithm 1 (Offline Construction) for the discovery and curation pipeline, Algorithm 2 (Online Intervention) for the retrieve-probe-inject loop, and Section 4.3 for cross-task transfer results showing that reasoning primitives generalize across related problem distributions.
+- **Paper:** [Internalizing LLM Reasoning via Discovery and Replay of Latent Actions](https://arxiv.org/abs/2602.04925v1) (Shi et al., 2026)
+- **Key takeaway:** Look at Section 3 for the full offline/online algorithm pseudocode, and Table 1 for the accuracy vs. token-efficiency Pareto improvements across six benchmarks. The retrieve-preview-commit cycle (Section 3.3) is the most directly implementable component.
