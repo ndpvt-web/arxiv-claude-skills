@@ -1,188 +1,228 @@
 ---
-name: eventcast-hybrid-demand-forecasting
-description: >
-  Build hybrid demand forecasting systems that fuse LLM-generated event knowledge with time-series models
-  using a dual-tower architecture. The LLM handles event reasoning (holidays, promotions, campaigns) while
-  a separate tower handles historical demand patterns, combined via learned fusion for accurate forecasts
-  during volatile event-driven periods.
-  Trigger phrases: "demand forecasting with events", "predict sales during promotions",
-  "forecast demand for flash sales", "event-aware time series", "e-commerce demand prediction",
-  "LLM-augmented forecasting"
+name: "eventcast-hybrid-demand-forecasting"
+description: "Build hybrid demand forecasting systems that fuse LLM-extracted event knowledge with time-series models using a dual-tower architecture. Use when asked to: 'forecast demand for flash sales', 'build a demand prediction pipeline with event awareness', 'integrate promotional calendars into forecasting', 'predict sales spikes from campaigns or holidays', 'combine LLM reasoning with time-series forecasting', 'create an event-driven demand model'."
 ---
 
 # EventCast: Hybrid Demand Forecasting with LLM-Based Event Knowledge
 
-This skill enables Claude to build demand forecasting pipelines that combine LLM-driven event reasoning with classical time-series prediction. The core insight from EventCast is that LLMs should NOT be used to predict numbers directly -- instead, they excel at interpreting unstructured business context (campaigns, holidays, seller incentives) into structured event summaries that a lightweight neural forecaster can consume. This dual-tower approach keeps forecasts grounded in historical data while injecting forward-looking event semantics, achieving dramatic accuracy gains during volatile periods like flash sales and holiday campaigns.
+This skill enables Claude to build modular demand forecasting systems that treat LLMs as event reasoning engines rather than numerical predictors. Based on the EventCast framework, the approach uses a dual-tower architecture: one tower encodes historical demand via an inverted transformer, while a second tower encodes structured event summaries produced by an LLM from unstructured business data (campaigns, holidays, seller incentives). The two towers fuse in a shared embedding space via additive alignment, producing forecasts that capture both baseline trends and event-driven demand shifts. This architecture achieved up to 57% MAE reduction over industrial baselines during promotional periods across 4 countries and 160 regions.
 
 ## When to Use
 
-- When the user needs to forecast demand, sales, or order volume for an e-commerce platform that runs promotions, flash sales, or holiday campaigns
-- When building a time-series forecasting system that must account for future known events (marketing campaigns, policy changes, holiday schedules)
-- When existing demand forecasts degrade during promotional or holiday periods and the user wants event-aware corrections
-- When the user has unstructured business data (campaign briefs, holiday calendars, seller incentive plans) and wants to incorporate it into quantitative forecasts
-- When building a forecasting pipeline that must work across multiple countries or regions with different cultural calendars (e.g., Ramadan, Diwali, Chinese New Year)
-- When the user asks to combine LLM reasoning with numerical prediction without letting the LLM hallucinate numbers
+- When the user needs to forecast demand for products affected by promotions, flash sales, holidays, or policy changes
+- When building a forecasting pipeline that must ingest unstructured business calendars, campaign briefs, or seller incentive descriptions
+- When the user wants to augment an existing time-series model (ARIMA, Prophet, transformer-based) with contextual event features
+- When asked to handle demand spikes that purely statistical models miss because the causal event is not in the historical data
+- When designing an LLM-augmented forecasting system where the LLM should reason about events, not predict numbers directly
+- When the user needs explainable forecasts that attribute demand changes to specific events
 
 ## Key Technique
 
-**Separation of concerns: LLM for reasoning, neural network for numbers.** EventCast rejects the approach of feeding time-series data into an LLM and asking it to predict future values. Instead, it uses the LLM exclusively as an event interpreter. Unstructured business data -- campaign descriptions, holiday schedules, seller incentive structures -- is fed to a frozen LLM via parameterized prompts. The LLM outputs structured textual summaries capturing event type, intensity, cultural context, and expected demand direction. These summaries are then tokenized and embedded as features for a lightweight forecasting model.
+**LLMs for reasoning, not prediction.** EventCast's core insight is that LLMs are poor at direct numerical forecasting but excellent at interpreting unstructured business context. The framework constrains the LLM to a single task: read raw campaign descriptions, holiday schedules, and incentive rules, then produce a structured textual summary describing the expected demand impact. This summary captures cultural nuances (e.g., Ramadan timing varies by country), event interactions (e.g., a flash sale overlapping a public holiday), and intensity signals (e.g., free-shipping thresholds). The LLM never sees demand numbers.
 
-**Dual-tower fusion architecture.** The forecasting model has two towers. The Historical Tower uses an inverted transformer (iTransformer-style) where each input variable is treated as a token, and multi-head self-attention captures cross-variable interactions over a lookback window (typically 14 days). The Event Tower takes the LLM-generated summary, tokenizes it, applies learnable token + positional embeddings (randomly initialized, not pretrained), and aggregates via summation into a fixed-dimensional vector. Both towers project into a shared 1024-dimensional latent space, fuse via element-wise addition, then pass through a residual feed-forward network with dual forecasting heads -- one for trend, one for event-driven patterns -- combined as `y = lambda * y_trend + (1-lambda) * y_event` with lambda=0.4.
+**Dual-tower fusion.** The time-series tower uses an inverted transformer that treats each feature dimension's history as a separate token (transposing the input from `[T x d]` to `[d x T]`), enabling cross-variable attention. The event tower tokenizes the LLM's structured output using learnable embeddings (not the LLM's own embeddings) with positional encoding, then sums them into a semantic vector. Both towers project into a shared 1024-dimensional space and fuse via addition: `h_aligned = h_hist + h_sem`. This additive fusion is simple but effective because both towers are trained end-to-end to align their representations.
 
-**Why this works:** Events like "Ramadan week 3 + free shipping + 50% seller co-fund" create demand patterns that pure time-series models cannot anticipate from historical data alone. The LLM bridges this gap by leveraging world knowledge (e.g., understanding that pre-iftar shopping spikes on Thursday-Friday, or that Eid al-Fitr suppresses demand). The structured summary format ensures this knowledge is consumed deterministically by the forecaster, avoiding LLM hallucination on actual numbers.
+**Dual prediction heads.** The fused representation feeds into two separate heads: a trend head capturing baseline demand and an event head capturing event-driven deviations. The final forecast is a weighted combination: `y = lambda * y_trend + (1 - lambda) * y_event`, with lambda defaulting to 0.4, biasing toward event-driven corrections when event knowledge is present.
 
 ## Step-by-Step Workflow
 
-1. **Inventory the event data sources.** Identify all available unstructured business data: campaign calendars, promotional rules, holiday schedules, logistics incentive tables, seller co-funding agreements. Map each source to a database table or API endpoint. Classify events into categories: promotional campaigns, religious/cultural holidays, public holidays, logistics changes, policy interventions.
+1. **Inventory your data sources.** Identify three categories: (a) historical demand time-series at your target granularity (daily/weekly, by SKU or region), (b) structured calendar data (holidays, campaigns with start/end dates), and (c) unstructured business text (campaign briefs, seller incentive descriptions, policy announcements). Map each source to a table or API.
 
-2. **Design parameterized LLM prompts for event summarization.** Build a prompt template that includes: country/region context, target date, day-of-week, calendar events with relative positioning (e.g., "3rd day of Ramadan"), promotional intensity on a numeric scale (1-12), free-shipping status, minimum order thresholds, seller incentive types (rebate, subsidy, co-fund ratios). End the prompt with: "Considering the combination of all factors, what is the expected overall demand trend?" Instruct the LLM to return structured output in a consistent format with semicolon-separated fields inside `<result>` tags.
+2. **Build the event knowledge base.** Create a unified schema with columns: `date`, `region`, `event_type` (campaign/holiday/incentive), `event_name`, `intensity` (1-12 scale), `scope` (national/regional/category-level), `raw_description` (free text), and `duration_days`. Populate from your operational databases. Include a 13-month rolling window for training.
 
-3. **Run the LLM event extraction pipeline.** For each (region, date) pair in the forecast horizon, populate the prompt template with relevant event data and call the LLM (use a frozen model -- no fine-tuning needed). Parse the structured output into fields: holiday_status, holiday_scope (state/national), campaign_level, free_shipping, logistics_threshold, seller_incentives, demand_trend. Cache results since the same event context applies to all SKUs in a region-date.
+3. **Design the LLM event-extraction prompt.** Construct a parameterized prompt template that provides the LLM with: (a) national context and timezone, (b) temporal properties (day of week, month, quarter), (c) active events with relative positioning (e.g., "Day 3 of 7-day sale"), (d) promotional intensity levels and discount tiers, (e) logistics incentives with eligibility thresholds. Instruct the LLM to reason step-by-step and output semicolon-separated fields inside `<result>...</result>` tags for reliable parsing.
 
-4. **Prepare historical demand features.** Extract a multivariate time-series matrix `X` of shape `(T, d)` where T is the lookback window (14 days recommended) and d is the number of demand-related variables (order volume, GMV, units sold, etc.). Transpose to `(d, T)` for the inverted transformer -- each variable becomes a token with T-length sequence.
+4. **Run LLM extraction in batch.** For each (date, region) pair in your forecast horizon, call the LLM with the populated prompt. Parse the `<result>` block into structured fields: `event_summary`, `expected_impact_direction` (up/down/neutral), `cultural_relevance`, `interaction_effects`. Cache results keyed by (date, region, event_hash) to avoid redundant calls. Use a frozen model (e.g., GPT-4, Claude, or ChatGLM-4) with temperature=0 for deterministic outputs.
 
-5. **Build the Historical Tower.** Implement a multi-head self-attention encoder operating on the transposed input. Use scaled dot-product attention: `Attention(Q,K,V) = softmax(QK^T / sqrt(d_k)) V`. Project the encoder output to the shared latent dimension (1024) via a learned projection matrix.
+5. **Prepare the time-series feature matrix.** For each prediction target, construct an input matrix `X` of shape `[14 x d]` (14-day lookback, d features). Features should include: raw demand, lag-1/7/14 demand, 7-day rolling mean and std, day-of-week encoding, month encoding, and any numerical event features (binary flags for active campaigns). Transpose to `[d x 14]` for the inverted transformer input.
 
-6. **Build the Event Tower.** Tokenize the LLM-generated event summary using a standard tokenizer (e.g., ChatGLM tokenizer or any subword tokenizer). Apply randomly initialized token embeddings and positional embeddings: `E_i = TokenEmbed(s_i) + PosEmbed(i)`. Aggregate all token embeddings via summation: `h_sem = sum(E_i)`. Project to the same 1024-dimensional shared space.
+6. **Encode event summaries.** Tokenize each LLM-generated summary field using a standard tokenizer (not the LLM's own). Map tokens through a learnable embedding layer (randomly initialized, trained end-to-end) and add positional embeddings. Aggregate per-field embeddings by summation to produce `h_sem` of dimension `d_model` (1024).
 
-7. **Implement the fusion layer and dual forecasting heads.** Add the two tower outputs element-wise: `h_aligned = h_hist + h_sem`. Pass through a residual feed-forward block with BatchNorm and LeakyReLU. Split into two forecasting heads: a trend head (captures base demand) and an event head (captures event-driven deviations). Combine outputs: `y = 0.4 * y_trend + 0.6 * y_event`.
+7. **Implement the dual-tower model.** Build the time-series tower as a multi-head self-attention encoder over the transposed feature matrix, projecting the output to `d_model` via a linear layer. Build the event tower as the embedding pipeline from step 6. Fuse via element-wise addition: `h_aligned = h_hist + h_sem`. Pass through a residual feed-forward block with batch normalization and LeakyReLU.
 
-8. **Train on historical data with known events.** Use region-date aligned pairs of (historical demand sequences, event summaries, actual demand) as training data. Train jointly with MSE loss. The event embeddings are learned end-to-end -- the model learns which tokens in the event summary matter for demand.
+8. **Add dual prediction heads.** Create two linear heads from the fused representation: `y_trend = W_trend @ z + b_trend` and `y_event = W_event @ z + b_event`. Combine as `y_final = 0.4 * y_trend + 0.6 * y_event`. Train with L2 loss on actual demand. Use a weighted sampling strategy that oversamples event-period examples.
 
-9. **Deploy with a two-stage inference pipeline.** Stage 1 (offline, daily): Run the LLM event summarization for all region-date pairs in the forecast horizon (T+1 to T+4). Stage 2 (online, per-request): Feed the cached event embeddings + live historical features through the dual-tower model. Target inference latency: <20 seconds for a full regional forecast.
+9. **Train and validate.** Train on a 13-month rolling window with the most recent month held out. Use NVIDIA GPU hardware; expect ~4 minutes per epoch on ~150M parameters. Evaluate with MAE and MSE, reporting separately for event periods vs. non-event periods to verify the event tower's contribution.
 
-10. **Monitor and recalibrate.** Track MAE/MSE separately for event-driven periods vs. normal periods. If event-period accuracy degrades, inspect the LLM summaries for that event type -- the prompt template may need new fields for novel event categories. Retrain the forecasting model monthly with fresh event-demand pairs.
+10. **Deploy with weekly retraining.** Set up a pipeline that (a) refreshes the event knowledge base from operational databases, (b) runs LLM extraction for the upcoming forecast horizon, (c) retrains or fine-tunes the model on the updated rolling window, and (d) serves forecasts with inference under 20 seconds. Log the LLM's event summaries alongside predictions for explainability.
 
 ## Concrete Examples
 
-**Example 1: E-commerce flash sale forecasting pipeline**
+**Example 1: E-commerce flash sale forecasting**
 
-User: "We run flash sales every month on our e-commerce platform. Our current ARIMA model fails badly during these periods. Build me a forecasting system that accounts for upcoming promotions."
-
-Approach:
-1. Query the promotions database for upcoming flash sale metadata: discount depth, category scope, duration, free-shipping eligibility, seller participation rate.
-2. Build an LLM prompt template:
-   ```
-   You are analyzing demand impact for an e-commerce platform.
-   Country: {country_code} | Region: {region_id}
-   Date: {target_date} ({day_of_week})
-   Holiday status: {holiday_name or "none"}, day {day_number} of {total_days}
-   Promotion: {promo_type}, discount level {1-12}, categories: {categories}
-   Free shipping: {yes/no}, minimum order: ${threshold}
-   Seller incentives: {incentive_description}
-
-   Based on these factors, summarize the expected demand conditions.
-   Format your response as: <result>holiday_status;holiday_scope;campaign_level;
-   free_shipping;logistics_threshold;seller_incentives;demand_trend</result>
-   ```
-3. For each (region, date) in the next 4 days, call the LLM with populated prompts.
-4. Build a dual-tower PyTorch model:
-   ```python
-   class EventCastModel(nn.Module):
-       def __init__(self, n_vars, lookback, d_model=1024, vocab_size=50000):
-           super().__init__()
-           # Historical tower: inverted transformer
-           self.var_embed = nn.Linear(lookback, d_model)
-           self.attn = nn.MultiheadAttention(d_model, nhead=8, batch_first=True)
-           self.hist_proj = nn.Linear(d_model, d_model)
-
-           # Event tower: learnable embeddings
-           self.token_embed = nn.Embedding(vocab_size, d_model)
-           self.pos_embed = nn.Embedding(512, d_model)
-
-           # Fusion + dual heads
-           self.fusion_ffn = nn.Sequential(
-               nn.Linear(d_model, d_model), nn.BatchNorm1d(d_model),
-               nn.LeakyReLU(), nn.Linear(d_model, d_model))
-           self.trend_head = nn.Linear(d_model, 1)
-           self.event_head = nn.Linear(d_model, 1)
-
-       def forward(self, x_hist, event_tokens):
-           # Historical tower: (batch, d_vars, T) -> attention over variables
-           h = self.var_embed(x_hist)  # (batch, d_vars, d_model)
-           h, _ = self.attn(h, h, h)
-           h_hist = self.hist_proj(h.mean(dim=1))  # pool over variables
-
-           # Event tower: token embeddings summed
-           positions = torch.arange(event_tokens.size(1), device=event_tokens.device)
-           e = self.token_embed(event_tokens) + self.pos_embed(positions)
-           h_sem = e.sum(dim=1)  # aggregate tokens
-
-           # Fusion
-           h_fused = self.fusion_ffn(h_hist + h_sem) + (h_hist + h_sem)
-           y_trend = self.trend_head(h_fused)
-           y_event = self.event_head(h_fused)
-           return 0.4 * y_trend + 0.6 * y_event
-   ```
-5. Train on 6+ months of historical (demand, event) pairs. Evaluate separately on event vs. non-event days.
-
-Output: A forecasting service that takes historical demand + upcoming event metadata and produces daily demand predictions per region, with significant accuracy gains during promotional periods.
-
----
-
-**Example 2: Multi-country holiday demand forecasting**
-
-User: "We operate in Indonesia, Malaysia, Thailand, and the Philippines. Our forecasting breaks during Ramadan, Chinese New Year, and Songkran. How do we handle this?"
+User: "I need to forecast daily order volume for our Indonesian marketplace. We have historical orders and a campaign calendar, but our current Prophet model misses demand spikes during flash sales."
 
 Approach:
-1. Build a country-aware event database mapping holidays to dates, durations, and cultural significance per region. Include state-level vs. national-level distinction.
-2. Design LLM prompts that leverage cultural world knowledge:
-   ```
-   Country: Indonesia | Region: Jakarta
-   Date: 2026-03-15 (Sunday), Ramadan Day 18 of 30
-   Context: Pre-Eid shopping period begins. Historically, F&B and
-   home decor surge Thu-Fri for iftar preparation. Sahur snack demand
-   peaks 3am-6am. Is this a state-level or national-level observance?
-   What demand pattern do you expect for this specific day?
-   ```
-3. The LLM output captures nuances a rule-based system cannot: "Ramadan Day 18 falls on a Sunday; expect moderate increase as weekend iftar gatherings combine with mid-Ramadan fatigue reducing impulse purchases. National-level observance. Campaign level 8."
-4. Feed these structured summaries into the EventCast dual-tower model, trained per-country with shared architecture but country-specific embeddings.
-5. Key: the same architecture handles Songkran (Thailand water festival with logistics disruptions), CNY (gifting-driven surge), and Eid (biphasic: surge before, drop during) because the LLM contextualizes each event differently.
+1. Pull the campaign calendar into the event knowledge base schema: dates, campaign names, discount tiers, free-shipping thresholds
+2. Design an LLM prompt for Indonesian market context:
 
-Output: Per-country, per-region daily demand forecasts that correctly capture culturally-specific demand patterns during overlapping holiday periods.
+```python
+PROMPT_TEMPLATE = """
+You are an e-commerce demand analyst for Indonesia.
 
----
+Date: {date} ({day_of_week}, {month})
+Region: {region}
+Active campaigns:
+{campaign_list}
 
-**Example 3: Adding event awareness to an existing forecasting system**
+Upcoming holidays within 7 days:
+{holiday_list}
 
-User: "We already have a Prophet/XGBoost demand model. How do we add event knowledge without rebuilding everything?"
+Active seller incentives:
+{incentive_list}
+
+Analyze the combined effect of these events on consumer demand.
+Consider: Ramadan timing, payday cycles (25th-1st), cultural shopping habits.
+Provide step-by-step reasoning, then output your analysis as:
+<result>impact_direction;intensity_1_to_12;primary_driver;interaction_effects;cultural_notes</result>
+"""
+```
+
+3. Batch-extract event summaries for each (date, region) in the 14-day forecast horizon
+4. Build the dual-tower model with 14-day lookback, fusing Prophet-style trend features with LLM event embeddings
+5. Train on 13 months of data, validate on the latest month's flash sale periods
+
+Output:
+```
+Forecast for Jakarta, 2025-03-15 (Day 2 of Ramadan Flash Sale):
+  Predicted orders: 142,300 (+67% vs. non-event baseline)
+  Event attribution: Ramadan Flash Sale (intensity 9/12) + Payday cycle overlap
+  Trend component: 85,200 | Event component: 183,500 | Lambda: 0.4
+  Confidence: [128,000 - 156,600] (80% interval)
+```
+
+**Example 2: Adding event awareness to an existing time-series pipeline**
+
+User: "We already have an LSTM-based demand model. How do I add event knowledge without rewriting everything?"
 
 Approach:
-1. Keep the existing model as the trend predictor (replaces the Historical Tower).
-2. Build only the Event Tower as an add-on:
-   - Run LLM event summarization for each forecast date
-   - Tokenize and embed the summaries using a small learned embedding layer
-   - Train a lightweight MLP that maps event embeddings to a demand adjustment factor
-3. Combine: `y_final = 0.4 * y_existing_model + 0.6 * y_event_adjustment`
-4. Train the event adjustment MLP on residuals from the existing model during event periods.
+1. Keep the existing LSTM as the time-series tower — extract its final hidden state as `h_hist`
+2. Build only the event tower and fusion layer as a wrapper module:
 
-Output: An event-aware wrapper that improves the existing forecasting model during promotional and holiday periods without replacing it.
+```python
+import torch
+import torch.nn as nn
+
+class EventTower(nn.Module):
+    def __init__(self, vocab_size, d_model=1024, n_fields=5, max_tokens=64):
+        super().__init__()
+        self.token_embed = nn.Embedding(vocab_size, d_model)
+        self.pos_embed = nn.Embedding(max_tokens, d_model)
+        self.n_fields = n_fields
+
+    def forward(self, token_ids_per_field):
+        # token_ids_per_field: list of [batch, seq_len] tensors, one per field
+        h_sem = torch.zeros(token_ids_per_field[0].size(0), 1024,
+                           device=token_ids_per_field[0].device)
+        for i, tokens in enumerate(token_ids_per_field):
+            positions = torch.arange(tokens.size(1), device=tokens.device)
+            emb = self.token_embed(tokens) + self.pos_embed(positions)
+            h_sem += emb.sum(dim=1)  # aggregate tokens per field, sum across fields
+        return h_sem
+
+class EventCastWrapper(nn.Module):
+    def __init__(self, existing_lstm, d_lstm, vocab_size, d_model=1024):
+        super().__init__()
+        self.ts_tower = existing_lstm
+        self.ts_proj = nn.Linear(d_lstm, d_model)
+        self.event_tower = EventTower(vocab_size, d_model)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.BatchNorm1d(d_model),
+            nn.LeakyReLU(),
+            nn.Linear(d_model, d_model),
+        )
+        self.head_trend = nn.Linear(d_model, 1)
+        self.head_event = nn.Linear(d_model, 1)
+
+    def forward(self, ts_input, event_token_fields, lam=0.4):
+        h_hist = self.ts_proj(self.ts_tower(ts_input))
+        h_sem = self.event_tower(event_token_fields)
+        h_fused = h_hist + h_sem  # additive fusion
+        z = self.ffn(h_fused) + h_fused  # residual connection
+        y_trend = self.head_trend(z)
+        y_event = self.head_event(z)
+        return lam * y_trend + (1 - lam) * y_event
+```
+
+3. Freeze the LSTM weights initially, train only the event tower and fusion layers for 5 epochs, then fine-tune everything end-to-end
+4. Compare MAE on event vs. non-event periods to validate the event tower adds value
+
+**Example 3: Building the LLM event extraction pipeline**
+
+User: "I have campaign data in a Postgres database and need to extract event features using an LLM. How do I set this up?"
+
+Approach:
+1. Query the database for active events within the forecast horizon:
+
+```sql
+SELECT date, region, event_name, event_type, description,
+       start_date, end_date, discount_pct, free_shipping_threshold
+FROM campaign_calendar
+WHERE date BETWEEN :forecast_start AND :forecast_end
+UNION ALL
+SELECT date, region, holiday_name, 'holiday', description,
+       date, date, NULL, NULL
+FROM holiday_calendar
+WHERE date BETWEEN :forecast_start AND :forecast_end
+ORDER BY date, region;
+```
+
+2. Group events by (date, region) and format into the prompt template
+3. Call the LLM in batches with structured output parsing:
+
+```python
+import re
+from typing import NamedTuple
+
+class EventFeatures(NamedTuple):
+    impact_direction: str
+    intensity: int
+    primary_driver: str
+    interaction_effects: str
+    cultural_notes: str
+
+def parse_llm_output(response: str) -> EventFeatures:
+    match = re.search(r"<result>(.*?)</result>", response, re.DOTALL)
+    if not match:
+        return EventFeatures("neutral", 1, "none", "none", "none")
+    fields = [f.strip() for f in match.group(1).split(";")]
+    return EventFeatures(
+        impact_direction=fields[0],
+        intensity=int(fields[1]),
+        primary_driver=fields[2],
+        interaction_effects=fields[3] if len(fields) > 3 else "none",
+        cultural_notes=fields[4] if len(fields) > 4 else "none",
+    )
+```
+
+4. Cache parsed features in a `event_features` table keyed by `(date, region, event_hash)` to avoid reprocessing unchanged events
 
 ## Best Practices
 
-- **Do:** Use the LLM only for event interpretation, never for predicting actual demand numbers. The LLM generates structured text summaries; the neural network produces numbers.
-- **Do:** Cache LLM event summaries by (region, date) since they are independent of individual SKU demand. This avoids redundant LLM calls and keeps inference fast.
-- **Do:** Include relative event positioning in prompts (e.g., "day 3 of 7-day campaign") rather than just binary event flags. Demand patterns differ dramatically between the start, middle, and end of a promotion.
-- **Do:** Use randomly initialized token embeddings for event summaries rather than frozen pretrained embeddings. This lets the model learn which textual features actually correlate with demand shifts.
-- **Avoid:** Feeding raw promotional text (e.g., marketing copy) directly to the model. Always pass it through the LLM summarization step first to normalize format and extract demand-relevant signals.
-- **Avoid:** Training a single global model without regional or country-level adaptation. Holiday impacts vary dramatically by region (a state holiday in Jakarta has different demand impact than a national holiday across Indonesia).
+- **Do** constrain the LLM to reasoning and summarization only — never feed it demand numbers or ask it to predict quantities. The LLM's job is to produce structured text describing *what* is happening, not *how much* demand will change.
+- **Do** use deterministic LLM settings (temperature=0) and cache results aggressively. Event descriptions for a given campaign rarely change day-to-day, so cache by event content hash.
+- **Do** evaluate event and non-event periods separately. If your event tower does not improve event-period MAE by at least 15-20%, the event extraction pipeline may need prompt tuning or richer input data.
+- **Do** use the dual-head design (trend + event) rather than a single head. This separation lets you diagnose whether errors come from baseline trend estimation or event impact estimation.
+- **Avoid** using the LLM's own token embeddings as event features. Train a separate learnable embedding layer end-to-end with the forecasting model — this produces task-specific representations that outperform frozen LLM embeddings.
+- **Avoid** overcomplicating the fusion mechanism. Additive fusion (`h_hist + h_sem`) in a shared latent space works as well as or better than cross-attention for this task, and trains faster with fewer parameters.
 
 ## Error Handling
 
-- **LLM returns inconsistent format:** Validate the structured output against an expected schema after each call. If fields are missing or malformed, retry once with a stricter prompt. Fall back to a "no event knowledge" baseline (trend-only prediction) if the LLM consistently fails for a given input.
-- **Novel event types not in training data:** When a new event category appears (e.g., a government policy change), the LLM can still produce reasonable summaries via world knowledge, but the event embeddings may not generalize. Flag predictions for novel events as low-confidence and route to human review.
-- **Overlapping events cause confusion:** When multiple events overlap (38% of days in the paper's dataset), ensure the prompt explicitly lists ALL active events for that date. The LLM should reason about their combined effect rather than processing each independently.
-- **Historical data is sparse for a new region:** The Historical Tower needs sufficient lookback data. For cold-start regions, rely more heavily on the Event Tower by adjusting lambda toward 1.0 (more event weight) and use transfer learning from similar regions.
-- **Demand trend labels are noisy:** If the LLM's demand_trend field (surge/increase/normal/decrease/drop) doesn't map well to actual outcomes, treat it as one of several input features rather than a hard classification. The model can learn to weight it appropriately during training.
+- **LLM returns unparseable output:** Fall back to a neutral event vector (zeros). The trend head still produces a reasonable baseline forecast. Log the failure for prompt debugging.
+- **Missing event data for a region/date:** Use a default "no active events" prompt that still captures calendar features (day of week, month). The model degrades gracefully to time-series-only prediction.
+- **Event intensity miscalibrated:** If the LLM consistently over- or under-estimates intensity, add few-shot examples of past events with known outcomes to the prompt template. Three to five calibration examples per market significantly improve alignment.
+- **Stale event knowledge base:** If campaign data is not refreshed before extraction, forecasts during new campaigns will miss event signals entirely. Build a staleness check that compares the latest event KB timestamp against the current forecast date and raises an alert if the gap exceeds 24 hours.
+- **Lambda imbalance:** If `lambda=0.4` overweights events for your domain (causing over-prediction during minor promotions), tune it on a validation set. Values between 0.3 and 0.6 are typical; lower values favor the event head.
 
 ## Limitations
 
-- Requires known future events. EventCast cannot predict demand shifts from unanticipated events (supply chain disruptions, competitor actions, viral social media). It only works when business events are planned and available in databases ahead of time.
-- LLM latency makes real-time re-forecasting impractical. The event summarization step should run in batch (daily), not per-request. Intraday demand adjustments need a separate mechanism.
-- The dual-tower architecture adds complexity over simpler feature-engineering approaches (e.g., one-hot event flags). For platforms with few, well-understood event types, a simpler approach may suffice. EventCast's value emerges when event combinations are novel or culturally complex.
-- Performance gains are concentrated in event-driven periods. During normal (non-event) days, EventCast performs comparably to standard time-series baselines. The ROI depends on what fraction of your demand is event-driven.
-- The paper's lambda=0.4 for trend weight was tuned on specific e-commerce data. Different domains (grocery, fashion, electronics) may need different fusion ratios. Treat lambda as a hyperparameter to tune.
+- **Requires structured event calendars.** If your business does not maintain campaign calendars, holiday schedules, or promotion databases, the event extraction pipeline has no input to work with. The approach assumes operational data already exists in some form.
+- **LLM latency and cost at scale.** Extracting event summaries for thousands of (date, region) pairs requires batched LLM calls. For very large-scale deployments (10K+ regions), the LLM extraction step may become a bottleneck. Aggressive caching and batch inference mitigate this.
+- **Cold start for new markets.** The model needs at least one full seasonal cycle (12+ months) of historical demand paired with event data to learn event-demand relationships. In new regions, the event tower provides minimal lift until sufficient training data accumulates.
+- **Does not handle supply-side shocks.** EventCast models demand-side events (promotions, holidays). Supply disruptions (warehouse outages, shipping delays) require separate handling since they affect fulfillment, not demand signals.
+- **Single-step forecasting.** The architecture produces point forecasts per (date, region). Multi-horizon or autoregressive multi-step forecasting requires architectural modifications to the prediction heads.
 
 ## Reference
 
-**Paper:** [EventCast: Hybrid Demand Forecasting in E-Commerce with LLM-Based Event Knowledge](https://arxiv.org/abs/2602.07695v2) (Hu et al., 2026). Look for: the dual-tower architecture diagram (Figure 2), the event summarization prompt template (Section 3.2), and the ablation study separating event-tower vs. historical-tower contributions (Table 3).
+**Paper:** [EventCast: Hybrid Demand Forecasting in E-Commerce with LLM-Based Event Knowledge](https://arxiv.org/abs/2602.07695v2) (Hu et al., 2026). Focus on Section 3 for the dual-tower architecture, Section 3.2 for the LLM prompt template design, and Section 4 for ablation studies showing the contribution of each component.

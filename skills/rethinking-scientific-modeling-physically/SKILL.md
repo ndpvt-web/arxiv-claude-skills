@@ -1,102 +1,111 @@
 ---
 name: "rethinking-scientific-modeling-physically"
-description: "Generate physics-consistent, simulation-executable structural engineering code using domain-constrained LLM workflows. Applies the AutoBM framework: domain knowledge injection, constraint-oriented alignment, and closed-loop verification. Trigger phrases: 'generate OpenSees model', 'create structural simulation code', 'physics-consistent building model', 'structural engineering code generation', 'finite element model from description', 'simulation-ready structural code'."
+description: "Generate physics-consistent, simulation-executable structural engineering code using constraint-oriented alignment and verification-driven evaluation. Use when: 'generate an OpenSees model', 'create a structural analysis script', 'build a seismic-resistant frame model', 'write simulation-ready building code', 'check my structural model for physical consistency', 'debug my OpenSeesPy script'."
 ---
 
-# Physics-Consistent Structural Modeling Code Generation
+# Physics-Consistent Simulation-Executable Code Generation
 
-This skill enables Claude to generate simulation-executable structural engineering code (primarily OpenSeesPy) from natural language building descriptions. It applies the AutoBM framework's three-pillar approach: (1) injecting formalized domain knowledge and engineering design codes as constraints, (2) aligning generated code to physical laws and API specifications through structured reasoning, and (3) validating outputs through closed-loop execution and physical metric extraction. The result is code that not only runs without errors but produces structurally meaningful results -- periods, drift ratios, and compliance checks that match real engineering expectations.
+This skill enables Claude to generate structurally sound, simulation-executable code for computational engineering — specifically reinforced concrete frame models in OpenSeesPy. It applies the AutoBM framework's three-pillar approach: domain knowledge construction (formalizing engineering constraints before generation), constraint-oriented alignment (enforcing API compliance and physical laws during generation), and verification-driven evaluation (closed-loop validation of executability, modal period accuracy, and code compliance after generation). The core insight is that physics-constrained generation with multi-granularity verification vastly outperforms unconstrained code generation, even from frontier models.
 
 ## When to Use
 
-- When the user asks to generate a finite element model for a reinforced concrete frame, steel structure, or other building type
-- When the user needs OpenSeesPy (or similar FEA) code that must actually execute and produce valid simulation results
-- When translating a structural engineering specification (story count, heights, seismic zone, building function) into simulation code
-- When debugging structural modeling code that runs but produces physically implausible results (e.g., fundamental period wildly off)
-- When the user wants automated seismic design verification -- checking interstory drift limits, demand-to-capacity ratios, or code compliance
-- When generating parameterized structural models from a description like "6-story residential RC frame in seismic intensity zone VII"
+- When the user asks to generate a structural analysis model (e.g., "create an OpenSeesPy model for a 5-story office building")
+- When the user provides building specifications (function, dimensions, seismic zone) and needs executable simulation code
+- When the user has an OpenSeesPy script with runtime errors or physically implausible results and needs debugging
+- When the user needs to verify that generated structural code satisfies seismic design codes (e.g., GB50011, ASCE 7, Eurocode 8)
+- When the user asks for a complete structural analysis pipeline: geometry, materials, loads, modal analysis, and compliance checks
+- When the user wants to parameterize structural models across building types, story counts, or seismic intensities
 
 ## Key Technique
 
-**The Grammatical-Physical Divide.** Standard LLMs can generate syntactically valid structural modeling code, but the code frequently violates physical constraints -- producing buildings with impossible natural periods, missing gravity loads, or analysis pipelines that skip critical steps. The AutoBM paper measured this: Claude Sonnet 4.5 achieves 79% executability but only 19% strict physical correctness. The gap between "code that runs" and "code that means something" is the core problem.
+**The Problem:** Frontier LLMs generate structurally plausible-looking code that fails in execution. Benchmarks show Claude, GPT, and Gemini achieve only 18-20% strict compliance (simultaneous executability + period accuracy + code compliance) on structural modeling tasks. The dominant failure mode (87.5% of errors) is syntax/API violations; the rest split between compliance violations (excessive drift) and modal period extraction errors.
 
-**Three-Pillar Constraint Framework.** The solution decomposes constraints into three categories that must all be satisfied: (1) *Physical constraints (DP)* -- structural mechanics principles, seismic design codes (e.g., GB50011-2010), capacity design rules, gravity load limits, interstory drift bounds; (2) *API constraints (DA)* -- correct OpenSeesPy function signatures, required modeling workflow sequences (nodes before elements, materials before sections), analysis pipeline ordering; (3) *Specification constraints (DT)* -- building geometry matching the user's request, correct seismic intensity parameters, appropriate building function classification. Code must satisfy all three simultaneously.
+**The Solution — Three-Stage Pipeline:**
 
-**Closed-Loop Verification.** Instead of treating code generation as a one-shot task, the framework validates outputs through execution in a sandbox, extracting physical metrics (fundamental period T1), checking compliance keywords, and comparing against ground truth. Failures feed back into iterative repair. This verification uses three tiers: Tier 1 (topology -- nodes/elements defined), Tier 2 (boundary/loads -- constraints and forces applied), Tier 3 (analysis/solver -- eigenvalue analysis and response spectrum configured). All three tiers must be present for a logically complete model.
+1. **Domain Knowledge Construction (CivilInstruct):** Rather than treating structural code as generic programming, the approach formalizes four knowledge layers: (a) API documentation with line-by-line annotations, (b) parameterized full-workflow code (~600 lines covering modeling through verification), (c) bug-fix chain-of-thought pairs capturing root causes and resolutions, and (d) physics-informed expert examples with ground-truth structural periods. This layered knowledge forces the generator to internalize not just syntax but engineering semantics.
+
+2. **Constraint-Oriented Generation with Multi-Granularity Hybrid Reward (MGHR):** Generation is guided by three reward signals weighted by importance: format compliance via regex (5%), logical completeness via hierarchical AST analysis of three API tiers — topology/T1, boundary-load/T2, analysis-solver/T3 (25%), and sandbox-executed physical consistency including structural period error (70%). The heavy weighting toward execution-verified physical consistency is what distinguishes this from standard code generation — the model learns that syntactically valid but physically wrong code scores near zero.
+
+3. **Verification-Driven Evaluation (MBEval):** Three pass@k metrics provide closed-loop validation: `pass@k_period` (fundamental period within 30% of ground truth), `pass@k_compliance` (design code adherence verified by keyword analysis), and `pass@k_strict` (all three conditions simultaneously). Code is executed in a sandboxed environment with time limits, and partial credit is awarded for runtime failures based on execution progress (lines executed / total lines).
 
 ## Step-by-Step Workflow
 
-1. **Parse the structural specification from the user's request.** Extract: building function (residential, office, hospital), number of stories, story heights, span dimensions, seismic design intensity, soil class, and any material specifications (concrete grade, rebar grade). If details are missing, use standard engineering defaults and state them explicitly.
+1. **Parse the building specification into structured parameters.** Extract: building function (office, residential, hospital, etc.), number of stories (typically 3-7), story height (3.0-4.0m), plan dimensions (length x width in meters), seismic intensity (e.g., 7, 7.5, 8, 8.5, 9 on Chinese scale or equivalent MMI/PGA), and peak ground acceleration (0.10g-0.40g). If any parameter is missing, ask the user or select code-compliant defaults.
 
-2. **Inject domain knowledge as constraint preamble.** Before generating code, assemble the applicable design code constraints: seismic intensity maps to design basic acceleration, building function maps to importance factor, structure type determines behavior factor. Format these as structured parameters, not prose. Example: `seismic_group=1, intensity=VII, site_class=II, Tg=0.35s, alpha_max=0.08`.
+2. **Select material constitutive models and compute section properties.** For reinforced concrete frames, define concrete (e.g., Concrete01 or Concrete02 in OpenSeesPy with compressive strength, strain at peak, crushing strain) and steel (e.g., Steel02 with yield strength, elastic modulus, hardening ratio). Compute beam and column cross-sections based on story count and seismic demand — larger sections for lower stories and higher seismic zones.
 
-3. **Generate the node and element topology (Tier 1).** Define all structural nodes with coordinates matching the specified geometry. Create frame elements (beamColumn) connecting nodes. Verify: node count = (stories + 1) * bays_per_direction, element connectivity forms a valid frame without orphan nodes.
+3. **Generate the structural geometry: nodes and elements.** Define nodes at every beam-column intersection with coordinates. Create nonlinearBeamColumn or forceBeamColumn elements for beams and columns. Assign fiber sections to elements with concrete core, concrete cover, and steel reinforcement layers. Ensure node numbering is consistent and all elements connect to valid nodes.
 
-4. **Define materials, sections, and boundary conditions (Tier 2).** Specify concrete and steel material models using `uniaxialMaterial` commands. Define fiber sections for beams and columns with appropriate reinforcement ratios. Apply fixity at base nodes. Add gravity loads: dead load + live load per story, applied as nodal loads or distributed element loads. Verify: strong-column-weak-beam capacity ratios are satisfied.
+4. **Apply boundary conditions and loads.** Fix base nodes (typically all DOFs for fixed supports). Apply gravity loads: dead load + live load as distributed beam loads converted to nodal forces using tributary area. Define mass at each floor level consistent with representative gravity loads (typically 1.0D + 0.5L for seismic mass).
 
-5. **Configure the analysis pipeline (Tier 3).** Implement in this exact order: (a) gravity analysis with load-controlled static integrator, (b) modal/eigenvalue analysis to extract fundamental periods, (c) response spectrum analysis or equivalent lateral force procedure. Each step must include convergence checks and `analyze()` calls.
+5. **Configure the analysis pipeline in three API tiers.**
+   - **Tier 1 (Topology):** `model`, `node`, `element`, `section`, `uniaxialMaterial` — the structural skeleton.
+   - **Tier 2 (Boundary/Load):** `fix`, `timeSeries`, `pattern`, `load`, `mass` — the loading environment.
+   - **Tier 3 (Analysis/Solver):** `constraints`, `numberer`, `system`, `test`, `algorithm`, `integrator`, `analysis`, `eigen`, `recorder` — the solution engine.
+   Verify that every tier is complete before proceeding. Missing any tier causes runtime failure.
 
-6. **Add physical verification checks in the generated code.** After modal analysis, compute and print the fundamental period T1. After response spectrum analysis, compute interstory drift ratios for each story and compare against code limits (typically 1/550 for RC frames). Print explicit compliance/non-compliance statements.
+6. **Implement eigenvalue analysis for the fundamental period.** Call `eigen(numModes)` after gravity analysis. Extract eigenvalues, compute periods as T = 2*pi/sqrt(eigenvalue). Print the fundamental period T1 explicitly — this is the primary physical verification target. Compare T1 against empirical formulas (e.g., T1 ≈ 0.1*N for RC frames where N is number of stories) as a sanity check.
 
-7. **Validate API call ordering and signatures.** Audit the generated code for correct OpenSeesPy workflow: `ops.wipe()` -> `ops.model()` -> materials -> nodes -> elements -> boundary -> loads -> analysis. Check that every function call uses valid argument types and counts per the OpenSeesPy documentation.
+7. **Add seismic demand analysis.** Apply lateral forces via response spectrum analysis or equivalent lateral force method per the applicable design code. Compute interstory drift ratios at each level. The critical check: drift must not exceed code limits (e.g., 1/550 for RC frames under frequent earthquakes per GB50011).
 
-8. **Execute the code in a sandboxed environment.** Run the generated script with a timeout (60s recommended). Capture stdout/stderr. If execution fails, classify the error: syntax error (fix string literals, parentheses), undefined variable (trace data flow), API misuse (check function signatures), or convergence failure (adjust solver parameters).
+8. **Generate compliance verification output.** Print explicit pass/fail conclusions for: (a) fundamental period within expected range, (b) interstory drift within code limits at every story, (c) demand-to-capacity ratios below 1.0 for critical members. Use keywords like "pass", "satisfy", "compliant" for automated verification parsing.
 
-9. **Validate physical plausibility of results.** Check extracted period T1 against empirical formulas: for RC frames, T1 ~ 0.1 * N_stories (rough check). If the period deviates by more than 30% from expected range, investigate: likely causes are missing mass, incorrect section properties, or wrong units. Iterate on the code until physical metrics are plausible.
+9. **Validate executability before delivering.** Mentally trace the code for: unterminated strings (the #1 failure mode at 95.7% of syntax errors), undefined variables, incorrect API signatures, mismatched parentheses, and missing analysis steps. Verify that `analyze()` is called after all analysis objects are configured. Check that `wipe()` or `wipeAnalysis()` is called between gravity and lateral analyses if reusing the model.
 
-10. **Deliver the final code with an engineering summary.** Output the complete, verified script along with: computed fundamental period, interstory drift ratios per story, compliance status against the applicable design code, and any assumptions made. Flag any constraints that are close to their limits.
+10. **Present the complete code with inline engineering annotations.** Structure the output as a single executable Python script with clear section headers: `# --- Material Definitions ---`, `# --- Node Geometry ---`, `# --- Element Connectivity ---`, `# --- Boundary Conditions ---`, `# --- Gravity Analysis ---`, `# --- Modal Analysis ---`, `# --- Seismic Analysis ---`, `# --- Compliance Check ---`. Include the parameter summary at the top as comments.
 
 ## Concrete Examples
 
-**Example 1: RC Frame from Natural Language Description**
+**Example 1: Generate a complete RC frame model from a specification**
 
-User: "Generate an OpenSeesPy model for a 5-story reinforced concrete office building. Each story is 3.6m high, 3 bays at 6m span in each direction. Seismic zone VII, site class II. Concrete C30, rebar HRB400."
+User: "Create an OpenSeesPy model for a 5-story office building, 60m x 20m plan, 3.6m story height, seismic intensity 8 with PGA 0.20g."
 
 Approach:
-1. Parse: 5 stories, h=3.6m, 3x3 bays, span=6m, intensity VII, site II
-2. Derive constraints: alpha_max=0.08, Tg=0.35s, characteristic period group 1
-3. Compute: 24 nodes per floor (4x4 grid), 120 total nodes, column sections 500x500mm (initial estimate), beam sections 300x600mm
+1. Parse parameters: function=office, stories=5, height=3.6m, plan=60x20m, intensity=8, PGA=0.20g
+2. Select materials: C30 concrete (fc=20.1 MPa), HRB400 steel (fy=400 MPa)
+3. Design sections: columns 600x600mm (lower 3 stories), 500x500mm (upper 2); beams 300x600mm
+4. Generate a 2D frame with 4 bays @ 5m (representative of the 60m direction)
 
-Output (abbreviated):
+Output (abbreviated — full code is ~600 lines):
 ```python
 import openseespy.opensees as ops
+import math
 
 ops.wipe()
-ops.model('basic', '-ndm', 3, '-ndf', 6)
+ops.model('basic', '-ndm', 2, '-ndf', 3)
 
-# --- Material Definitions ---
-fc = 20.1e6  # C30 design compressive strength (Pa)
-fy = 360e6   # HRB400 yield strength (Pa)
-ops.uniaxialMaterial('Concrete01', 1, -fc, -0.002, -0.85*fc, -0.005)
-ops.uniaxialMaterial('Steel01', 2, fy, 2.0e11, 0.01)
+# --- Parameters ---
+nStory = 5
+storyH = 3.6  # m
+bayW = 5.0    # m
+nBay = 4
+PGA = 0.20    # g
 
-# --- Node Generation ---
-story_heights = [0.0, 3.6, 7.2, 10.8, 14.4, 18.0]
-bay_coords_x = [0.0, 6.0, 12.0, 18.0]
-bay_coords_y = [0.0, 6.0, 12.0, 18.0]
-node_tag = 1
-for sz in story_heights:
-    for bx in bay_coords_x:
-        for by in bay_coords_y:
-            ops.node(node_tag, bx, by, sz)
-            if sz == 0.0:
-                ops.fix(node_tag, 1, 1, 1, 1, 1, 1)  # Fixed base
-            node_tag += 1
+# --- Materials ---
+ops.uniaxialMaterial('Concrete01', 1, -20.1e3, -0.002, -4.02e3, -0.005)  # Core
+ops.uniaxialMaterial('Concrete01', 2, -20.1e3, -0.002, 0.0, -0.004)       # Cover
+ops.uniaxialMaterial('Steel02', 3, 400.0e3, 2.0e8, 0.01)                  # Rebar
 
-# --- Fiber Sections (columns: 500x500, beams: 300x600) ---
-# [section definitions with cover concrete, core concrete, rebar layers]
+# --- Nodes ---
+nodeTag = 1
+for i in range(nStory + 1):
+    for j in range(nBay + 1):
+        ops.node(nodeTag, j * bayW, i * storyH)
+        if i == 0:
+            ops.fix(nodeTag, 1, 1, 1)  # Fixed base
+        nodeTag += 1
 
-# --- Elements (forceBeamColumn with 5 integration points) ---
-# [column and beam element definitions connecting nodes]
+# --- Sections (fiber) ---
+# [Column and beam fiber section definitions...]
 
-# --- Gravity Loads ---
-ops.timeSeries('Linear', 1)
-ops.pattern('Plain', 1, 1)
-# Dead: 5.0 kN/m2, Live: 2.0 kN/m2 (office)
-# Applied as nodal loads at each floor node
+# --- Elements ---
+# [forceBeamColumn elements for columns and beams...]
 
 # --- Gravity Analysis ---
-ops.constraints('Transformation')
+ops.timeSeries('Linear', 1)
+ops.pattern('Plain', 1, 1)
+# [Nodal loads from tributary gravity...]
+ops.constraints('Plain')
 ops.numberer('RCM')
 ops.system('BandGeneral')
 ops.test('NormDispIncr', 1.0e-6, 100)
@@ -107,116 +116,94 @@ ops.analyze(10)
 ops.loadConst('-time', 0.0)
 
 # --- Modal Analysis ---
-num_modes = 3
-eigenvalues = ops.eigen(num_modes)
-periods = [2 * 3.14159 / (ev**0.5) for ev in eigenvalues]
-print(f"Fundamental period T1 = {periods[0]:.3f} s")
-# Expected range for 5-story RC frame: ~0.4-0.7s
+eigenValues = ops.eigen(3)
+T1 = 2 * math.pi / math.sqrt(eigenValues[0])
+print(f"Fundamental Period T1 = {T1:.4f} s")
+# Sanity check: T1 ~ 0.1 * nStory = 0.5s expected range
 
-# --- Interstory Drift Check ---
-# [extract node displacements, compute drift ratios per story]
-# Limit: 1/550 = 0.00182 for RC frame per GB50011-2010
+# --- Seismic Demand & Compliance ---
+# [Response spectrum or ELF analysis...]
+# [Interstory drift check: must be < 1/550 = 0.00182]
+# [Print: "Structure satisfies seismic drift requirements"]
 ```
 
-**Example 2: Debugging Physically Implausible Output**
+**Example 2: Debug a failing OpenSeesPy structural model**
 
-User: "My OpenSeesPy model runs fine but gives a fundamental period of 15.2 seconds for a 3-story building. That can't be right."
+User: "My OpenSeesPy script crashes with `SyntaxError: unterminated string literal` somewhere around the material definitions. Can you fix it?"
 
 Approach:
-1. A 3-story RC frame should have T1 ~ 0.3-0.5s. A period of 15.2s indicates the model is ~30-50x too flexible.
-2. Check common causes using the three-constraint taxonomy:
-   - **Physical (DP)**: Are masses assigned? Missing mass produces near-zero eigenvalues -> huge periods. Are gravity loads applied before modal analysis?
-   - **API (DA)**: Is `ops.loadConst('-time', 0.0)` called after gravity analysis? Without it, the eigenvalue solver includes the load pattern as stiffness modification. Is the mass defined via `ops.mass()` or via element density?
-   - **Specification (DT)**: Are units consistent? Mixing meters/millimeters or N/kN is the #1 cause of wrong-magnitude results.
+1. This is the #1 failure mode (95.7% of syntax errors). Scan all string arguments in `uniaxialMaterial`, `section`, and `element` calls for unclosed quotes.
+2. Check for multiline strings that break across lines without proper continuation.
+3. Apply the Bug-CoT pattern: identify the error manifestation, trace root cause, apply fix, add preventive annotation.
 
 Output:
 ```
-Diagnosis: Period of 15.2s for 3-story building indicates one of:
+Root cause: Line 47 has ops.uniaxialMaterial('Concrete01', 1, -20.1e3, -0.002, -4.02e3, -0.005)
+with a curly quote character (') instead of a straight quote ('). This is common when code is
+copied from documentation PDFs.
 
-1. MISSING NODAL MASS (most likely)
-   - Check: search for ops.mass() calls. If absent, eigenvalue analysis
-     has no mass matrix and returns garbage.
-   - Fix: Add ops.mass(nodeTag, mx, my, mz, 0, 0, 0) at each floor node
-     where mx = tributary_area * (dead_load + 0.5*live_load) / g
-
-2. UNIT INCONSISTENCY
-   - If you defined E_concrete = 30e9 (Pa) but lengths in mm,
-     stiffness is 1e6x too low -> period is 1000x too high.
-   - Fix: Use consistent unit system. Recommended: N, m, kg, s.
-
-3. MISSING loadConst AFTER GRAVITY
-   - If gravity loads remain as pseudo-time, modal analysis
-     is corrupted.
-   - Fix: Add ops.loadConst('-time', 0.0) after gravity analyze().
+Fix: Replace all curly/smart quotes with straight ASCII quotes.
+Prevention: Always define material tags as integer variables at the top of the script and
+reference them by variable name to avoid string-related errors entirely.
 ```
 
-**Example 3: Parameterized Model Generation**
+**Example 3: Verify physical consistency of an existing model**
 
-User: "I need to generate 20 variations of a 4-story RC frame model, varying column sizes from 400mm to 700mm in 50mm increments, and extract the fundamental period for each."
+User: "I generated this 3-story residential building model. The fundamental period comes out as T1=2.8s. Does that make sense?"
 
 Approach:
-1. Create a parameterized function that takes column dimension as input
-2. Wrap in a loop with proper `ops.wipe()` between runs
-3. Include all three constraint tiers in each iteration
-4. Collect and report results as a table
+1. Apply the empirical sanity check: T1 ~ 0.1 * N = 0.1 * 3 = 0.3s for a typical 3-story RC frame.
+2. T1=2.8s is ~9x the expected value — the structure is far too flexible.
+3. Check common causes: mass units inconsistent with force units, missing or incorrect section stiffness, gravity loads not applied before eigen analysis, wrong number of integration points.
 
 Output:
-```python
-import openseespy.opensees as ops
-import numpy as np
+```
+T1 = 2.8s is physically implausible for a 3-story RC frame (expected ~0.2-0.5s).
 
-results = []
-col_sizes = np.arange(400, 750, 50)  # mm -> convert to m
+Most likely causes (in order of probability):
+1. Unit mismatch: If you defined E in Pa but lengths in mm, stiffness is off by 1e6.
+   Fix: Ensure consistent units — recommend kN, m, s throughout.
+2. Sections have near-zero stiffness: Check that fiber sections have nonzero area and
+   correct material assignment. Print ops.eleResponse(elemTag, 'stiffness') to verify.
+3. Mass not assigned: If ops.mass() was not called or gravity loads weren't applied
+   before eigen(), the mass matrix may be empty/wrong.
 
-for col_dim_mm in col_sizes:
-    col_dim = col_dim_mm / 1000.0  # Convert to meters
-    ops.wipe()
-    ops.model('basic', '-ndm', 2, '-ndf', 3)
-
-    # [Full model generation with col_dim as parameter]
-    # Nodes, materials, sections (fiber with col_dim x col_dim),
-    # elements, loads, gravity analysis, modal analysis
-
-    eigenvalues = ops.eigen(1)
-    T1 = 2 * 3.14159 / (eigenvalues[0]**0.5)
-    results.append((col_dim_mm, T1))
-    print(f"Column {col_dim_mm}mm: T1 = {T1:.4f} s")
-
-# Verify physical trend: larger columns -> shorter period (stiffer)
-for i in range(1, len(results)):
-    assert results[i][1] <= results[i-1][1], \
-        f"Non-monotonic period at {results[i][0]}mm -- check model"
+Run eigenvalue analysis after gravity load step with ops.loadConst('-time', 0.0) to ensure
+masses are correctly established.
 ```
 
 ## Best Practices
 
-- **Do:** Always define units explicitly at the top of every generated script (e.g., `# Units: N, m, kg, s`). Unit confusion causes the majority of physically implausible results.
-- **Do:** Include the full analysis pipeline -- gravity, modal, lateral -- in every model. Skipping gravity analysis before modal analysis produces incorrect periods because the stiffness matrix lacks P-delta effects.
-- **Do:** Add self-checking assertions in generated code: verify node counts match expected geometry, check that periods fall in physically reasonable ranges, confirm drift ratios are below code limits.
-- **Do:** Follow the strict OpenSeesPy call ordering: wipe -> model -> materials -> nodes -> fixities -> elements -> timeSeries -> pattern -> loads -> analysis. Out-of-order calls produce silent failures.
-- **Avoid:** Generating partial models that require manual completion. Every output must be a complete, runnable script from `ops.wipe()` through result extraction.
-- **Avoid:** Using placeholder values for critical structural parameters (section dimensions, material strengths, seismic coefficients). Either derive them from the specification or state the engineering assumption and source code provision.
-- **Avoid:** Treating code executability as sufficient validation. A model that runs but predicts T1=50s for a 3-story building is worse than a model that crashes -- it gives false confidence.
+- **Do:** Always structure generated code in the three-tier hierarchy (Topology → Boundary/Load → Analysis/Solver). Missing any tier causes runtime failure. Verify completeness of each tier before generating the next.
+- **Do:** Weight physical consistency far above syntactic correctness. A model that runs but gives T1=50s for a 5-story building is worse than a model that crashes with a clear error — the crash is diagnosable, the wrong answer is dangerous.
+- **Do:** Include explicit sanity checks in generated code (empirical period formulas, drift limit comparisons, equilibrium checks). Print verification results with clear pass/fail keywords.
+- **Do:** Use `ops.loadConst('-time', 0.0)` between gravity and lateral analyses and call `ops.wipeAnalysis()` before reconfiguring solvers. Omitting these causes silent state corruption.
+- **Avoid:** Generating structural code without first confirming the unit system. Unit mismatches between material properties (Pa vs kPa vs MPa), geometry (m vs mm), and loads (N vs kN) are the second most common source of physically implausible results.
+- **Avoid:** Using placeholder or approximate section properties. Every beam and column must have explicitly computed fiber sections with realistic reinforcement ratios (typically 0.8%-4% for columns, 0.2%-2.5% for beams per code limits).
 
 ## Error Handling
 
-| Error Type | Symptom | Resolution |
-|---|---|---|
-| **Syntax (unterminated string)** | `SyntaxError` on execution | Check all string literals, especially multiline comments. This accounts for 95% of executability failures. |
-| **Undefined variable** | `NameError` at runtime | Trace data flow: ensure node tags, material tags, and section tags are defined before reference. |
-| **Convergence failure** | `analyze()` returns negative | Reduce load step size, switch algorithm (`Newton` -> `NewtonLineSearch`), or increase iteration limit. |
-| **Singular stiffness matrix** | `WARNING: singular` | Check for unconnected nodes, missing boundary conditions, or zero-stiffness elements. |
-| **Implausible period** | T1 off by order of magnitude | Check unit consistency, verify mass is assigned, confirm `loadConst` is called after gravity. |
-| **Missing compliance output** | No drift/capacity checks | Add post-analysis verification block: extract displacements, compute drift ratios, compare to code limits, print pass/fail. |
+| Error Type | Frequency | Root Cause | Resolution |
+|---|---|---|---|
+| `SyntaxError: unterminated string literal` | 95.7% of syntax errors | Smart quotes from PDF copy, unclosed strings | Replace all quotes with ASCII; use integer tags |
+| `WARNING: eigenvalue not found` | Common | Mass matrix empty or singular | Ensure mass is assigned and gravity analysis converges before eigen call |
+| Implausible fundamental period | 5.2% of physics errors | Unit mismatch or missing section stiffness | Verify unit consistency; print section properties |
+| Excessive interstory drift | 7.3% of compliance errors | Undersized members for seismic demand | Increase column dimensions or add shear walls |
+| `analyze() returns -1` | Common | Non-convergent solution | Reduce load increment, switch to `NewtonLineSearch`, increase iteration limit |
+
+When execution fails partway, check how far the script progressed (which tier completed) to narrow the root cause. Tier 1 failures indicate geometry/material errors; Tier 2 failures indicate load/boundary errors; Tier 3 failures indicate solver configuration issues.
 
 ## Limitations
 
-- **Domain specificity.** This workflow is validated for reinforced concrete and steel frame structures under seismic loading. It does not cover specialized structures (bridges, dams, offshore platforms) without significant adaptation of the constraint set.
-- **Design code coverage.** The constraint knowledge is primarily based on Chinese design codes (GB50011, GB50010, JGJ3). For Eurocode, ASCE 7, or other standards, the seismic parameters, drift limits, and capacity design rules must be substituted accordingly.
-- **2D vs 3D limitations.** Many examples use 2D frame simplifications. Full 3D models with floor diaphragms, torsional irregularity checks, and bidirectional seismic input require additional constraint layers not fully covered here.
-- **Nonlinear analysis.** The verification metrics focus on linear modal and response-spectrum analysis. Pushover analysis, time-history analysis, and material nonlinearity introduce additional failure modes that need extended validation.
-- **Model scale.** For buildings beyond ~20 stories or with complex irregular geometries, the generated code may need manual optimization for computational efficiency (e.g., substructuring, reduced-order models).
+- **OpenSeesPy-specific.** The workflow and API tier hierarchy are tailored to OpenSeesPy. Adapting to ETABS, SAP2000, ABAQUS, or ANSYS requires mapping the constraint taxonomy to those platforms' APIs.
+- **2D frame models only.** The current approach generates 2D planar frame models. 3D models with floor diaphragms, torsional effects, and biaxial bending require significant extensions.
+- **Chinese seismic codes as default.** The compliance checks reference GB50011-2010 and related Chinese standards. For ASCE 7, Eurocode 8, or other codes, drift limits, load combinations, and capacity design rules must be substituted.
+- **Reinforced concrete frames only.** Steel structures, timber, masonry, or composite systems require different material models, section types, and design checks.
+- **Period tolerance of 30%.** The MBEval benchmark considers T1 within ±30% of ground truth as passing — this is appropriate for preliminary design but insufficient for final engineering validation.
+- **No nonlinear dynamic analysis.** The workflow covers modal and response spectrum analysis. Nonlinear time-history analysis with ground motion records requires additional complexity (ground motion selection, hysteretic material models, convergence management).
 
 ## Reference
 
-**Paper:** Jiang et al., "Rethinking Scientific Modeling: Toward Physically Consistent and Simulation-Executable Programmatic Generation" (arXiv:2602.07083, 2026). Look for: the three-constraint taxonomy (DP/DA/DT), the tiered API completeness check, the multi-granularity reward structure, and Table 1 showing the grammatical-physical divide across LLMs. **Code:** [github.com/Jovanqing/AutoBM](https://github.com/Jovanqing/AutoBM)
+**Paper:** Jiang et al., "Rethinking Scientific Modeling: Toward Physically Consistent and Simulation-Executable Programmatic Generation" (arXiv:2602.07083, 2026). Key takeaway: physics-constrained reinforcement learning with multi-granularity hybrid reward (70% execution-verified physical consistency, 25% AST completeness, 5% format) transforms a 7B parameter model into one that outperforms frontier models on structural code generation by 3-4x on strict compliance metrics.
+
+**Code:** https://github.com/Jovanqing/AutoBM
