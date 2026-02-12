@@ -1,223 +1,245 @@
 ---
 name: "linglanmidian-systematic-evaluation-tcm"
-description: "Build rigorous, multi-task LLM evaluation benchmarks for specialized domains using LingLanMiDian's methodology: synonym-tolerant scoring, difficulty-stratified hard subsets, distractor generation via embedding retrieval, and decision-recognition reframing. Triggers: 'evaluate LLM on domain knowledge', 'build a benchmark for specialized reasoning', 'create synonym-tolerant scoring', 'TCM evaluation benchmark', 'domain-specific LLM evaluation suite', 'hard subset difficulty scoring'"
+description: "Build rigorous, multi-task evaluation benchmarks for domain-specific LLMs using the LingLanMiDian methodology: synonym-tolerant matching, difficulty-ranked hard subsets, character-level F1, and decision recognition reframing. Trigger phrases: 'evaluate LLM on domain knowledge', 'build a medical benchmark', 'TCM evaluation pipeline', 'synonym-tolerant scoring', 'create hard subset for benchmark', 'domain-specific LLM evaluation'"
 ---
 
-This skill teaches Claude to design and implement systematic, multi-task evaluation benchmarks for specialized domains (medical, legal, cultural) using the LingLanMiDian methodology. The core techniques include: constructing synonym-tolerant matching protocols that handle terminological variation, generating difficulty-scored Hard subsets from model disagreement signals, reframing open-ended clinical/expert tasks as discriminative single-choice problems with embedding-retrieved distractors, and applying task-appropriate metric hierarchies (character-level F1, list-level precision/recall, cosine similarity for continuous outputs). These techniques generalize well beyond TCM to any domain where terminology varies, expert reasoning is multi-step, and fair cross-model comparison matters.
+# LingLanMiDian: Systematic Domain-Specific LLM Evaluation
+
+This skill enables Claude to design and implement rigorous, multi-task evaluation benchmarks for domain-specific LLMs, applying the LingLanMiDian methodology from TCM (Traditional Chinese Medicine) evaluation. The core techniques—synonym-tolerant bipartite matching, composite-difficulty hard subset selection, character-level F1 scoring, embedding-based distractor generation for decision recognition, and unified multi-format metric design—generalize to any specialized domain where terminology is rich, answers have multiple valid surface forms, and you need fair, reproducible model comparison.
 
 ## When to Use
 
-- When the user asks to build an evaluation benchmark for a specialized domain (medicine, law, finance, classical literature) where terminology is non-standardized
-- When the user needs to compare multiple LLMs on domain-specific knowledge and reasoning tasks with fair, consistent metrics
-- When the user wants to create difficulty-stratified test sets that expose gaps between models and human experts
-- When the user needs to convert open-ended generation tasks (diagnosis, recommendation) into reproducible single-choice evaluations
-- When the user asks to implement synonym-tolerant or fuzzy matching for evaluating LLM outputs against gold labels
-- When the user needs to generate high-quality distractors for multiple-choice evaluation items using embedding similarity
-- When the user is building a TCM (Traditional Chinese Medicine) knowledge evaluation pipeline
+- When the user needs to evaluate LLMs on a specialized domain (medicine, law, finance, engineering) and existing benchmarks are fragmented or generation-heavy
+- When building a scoring pipeline that must tolerate synonyms, abbreviations, or near-equivalent labels (e.g., "MI" vs "myocardial infarction")
+- When the user wants to construct a "hard subset" from an existing benchmark to stress-test model robustness
+- When converting open-ended clinical/domain tasks (diagnosis, recommendation) into single-choice format for standardized scoring
+- When implementing character-level or token-level F1 for partial-credit scoring on cloze/fill-in-the-blank tasks
+- When designing extraction metrics that handle multiset entity matching with multiplicity
+- When the user asks to compare multiple LLMs fairly across heterogeneous task formats (MCQ, cloze, extraction, open-ended)
 
 ## Key Technique
 
-**Unified multi-task evaluation with synonym tolerance.** LingLanMiDian's central insight is that domain-specific LLM evaluation fails when tasks use inconsistent scoring or when surface-form variation in expert terminology causes false negatives. The benchmark solves this with a bipartite matching protocol: predicted and gold label sets are treated as nodes in a bipartite graph, edges connect pairs whose character-level F1 exceeds a threshold (tau=0.7), and maximum-cardinality matching determines true positives. This allows "blood stasis" to match "blood stagnation" without a manually curated synonym dictionary, while still rejecting genuinely wrong answers.
+**Unified multi-format evaluation with synonym tolerance.** LingLanMiDian's central insight is that domain-specific evaluation fails when you apply a single metric to heterogeneous task types, or when exact-match scoring penalizes semantically correct answers that differ in surface form. The benchmark defines five metric families—accuracy for classification, instance-level multiset P/R/F1 for extraction, character-level F1 for cloze, synonym-tolerant bipartite F1 (DTR-F1) for open-ended clinical labels, and cosine similarity + MAE for quantitative predictions—then applies each consistently within its task category across all datasets.
 
-**Difficulty scoring via model disagreement.** Rather than relying on human difficulty ratings (expensive and subjective), LingLan computes item difficulty as `D = (1 - mu) + lambda * sigma`, where `mu` is the mean accuracy across all evaluated models and `sigma` is the variance. High difficulty means most models fail (low mu) and they disagree about it (high sigma). The top 400 items per task form the Hard subset, which reliably exposes the gap between frontier models and domain experts.
+**Synonym-tolerant bipartite matching (DTR-F1).** For open-ended tasks where multiple valid labels exist (e.g., syndrome names), the algorithm constructs a bipartite graph between predicted labels and gold labels. An edge exists between prediction y_hat and gold y if their character-level F1 exceeds threshold tau (default 0.7). Maximum-cardinality matching on this graph yields true positives, with unmatched predictions as false positives and unmatched golds as false negatives. This enforces one-to-one alignment while tolerating near-synonymous forms—critical in any domain with rich terminological variation.
 
-**Decision recognition via embedding-retrieved distractors.** Open-ended clinical tasks (syndrome differentiation, treatment recommendation) are notoriously hard to score fairly. LingLan reframes them as single-choice questions: the correct answer is the gold-standard clinical label, and distractors are sourced by encoding the case with a lightweight embedding model, retrieving the top-K nearest neighbors, and selecting semantically close but incorrect options. This yields discriminative items that test genuine clinical reasoning rather than surface-level pattern matching.
+**Composite-difficulty hard subset construction.** Rather than hand-picking hard examples, LingLan scores each item by running all N models and computing D = (1 - mu) + lambda * sigma, where mu is mean accuracy across models and sigma is variance. High D means items that are both hard on average and discriminative (high variance implies some models get it right, others don't). The top-400 items per task form the Hard subset. This is a reusable technique for any benchmark: it surfaces items that differentiate models rather than items that are uniformly impossible.
 
 ## Step-by-Step Workflow
 
-1. **Define the domain taxonomy and task types.** Enumerate the evaluation dimensions for your domain (e.g., knowledge recall, multi-step reasoning, information extraction, decision-making). Map each dimension to concrete task formats: single-choice, multi-choice, cloze/fill-in-blank, structured extraction, or decision recognition.
+1. **Define the task taxonomy.** Enumerate the domain's evaluation dimensions: knowledge recall (MCQ), reasoning (multi-hop MCQ), information extraction (NER/span), cloze completion, open-ended generation, and quantitative prediction. Map each to a specific metric family before writing any code.
 
-2. **Curate or source gold-standard items with expert review.** Collect items from licensing exams, textbooks, clinical records, or domain corpora. Ensure each item has: a question/prompt, a gold answer (possibly a set of labels), the task type, and a domain category. Have domain experts validate at least a sample.
+2. **Standardize data format.** Represent every item as a JSON object with fields: `id`, `task_type` (enum), `question`, `options` (nullable), `gold_answer` (string or list), `metadata` (source, difficulty tags). For extraction tasks, `gold_answer` is a list of `{entity, type, count}` objects. For dosage tasks, include a `gold_vector` of `{herb, dose_grams}` pairs.
 
-3. **Assign task-appropriate metrics to each subtask.**
-   - Single-choice accuracy for factual recall
-   - Instance-level and option-level precision/recall/F1 for multi-label tasks
-   - Character-level F1 (multiset intersection over character multiplicities) for cloze/short-answer
-   - List-level precision/recall/F1 with bipartite matching for extraction tasks
-   - MAE and cosine similarity for continuous-valued predictions (e.g., dosage, quantities)
+3. **Implement the metric registry.** Build a dispatcher that selects the scoring function based on `task_type`:
+   - `single_choice` → Accuracy (exact match on option letter)
+   - `multi_choice` → Instance-level accuracy + option-level Precision/Recall/F1
+   - `cloze` → Character-level F1 (treat strings as character multisets)
+   - `extraction` → Multiset P/R/F1 with type+normalized-form equality
+   - `open_label` → DTR-F1 with synonym-tolerant bipartite matching (tau=0.7)
+   - `quantitative` → Cosine similarity on aligned dose vectors + MAE
 
-4. **Implement the synonym-tolerant matching protocol.** For each (predicted_label, gold_label) pair, compute character-level F1. Build a bipartite graph with edges where F1 >= tau (default 0.7). Run maximum-cardinality matching (e.g., Hopcroft-Karp) to determine TP. Compute precision = TP / |predicted|, recall = TP / |gold|, F1 from these.
+4. **Implement synonym-tolerant matching.** For each instance: (a) compute pairwise character-F1 between every predicted label and every gold label, (b) build a bipartite graph keeping edges where F1 >= tau, (c) run the Hopcroft-Karp or Hungarian algorithm for maximum-cardinality matching, (d) derive TP/FP/FN from match counts.
 
-   ```python
-   from collections import Counter
-   import networkx as nx
+5. **Implement character-level F1.** For two strings s and s_hat: count character occurrences as multisets. TP = sum of min(count_s(c), count_s_hat(c)) for each character c. FP = sum of max(0, count_s_hat(c) - count_s(c)). FN = sum of max(0, count_s(c) - count_s_hat(c)). Compute P = TP/(TP+FP), R = TP/(TP+FN), F1 = 2PR/(P+R).
 
-   def char_f1(pred: str, gold: str) -> float:
-       p_chars, g_chars = Counter(pred), Counter(gold)
-       overlap = sum((p_chars & g_chars).values())
-       if overlap == 0:
-           return 0.0
-       precision = overlap / sum(p_chars.values())
-       recall = overlap / sum(g_chars.values())
-       return 2 * precision * recall / (precision + recall)
+6. **Convert open-ended tasks to decision recognition.** For open-ended diagnosis/treatment tasks: (a) embed all candidate labels with a sentence encoder, (b) for each test case, retrieve the top-K nearest neighbors to the gold label, (c) construct a single-choice item with the gold as correct and K-1 semantically close distractors. This transforms generation evaluation into classification, enabling accuracy-based comparison.
 
-   def synonym_tolerant_match(preds: list[str], golds: list[str], tau: float = 0.7) -> tuple[float, float, float]:
-       G = nx.Graph()
-       for i, p in enumerate(preds):
-           for j, g in enumerate(golds):
-               if char_f1(p, g) >= tau:
-                   G.add_edge(f"p_{i}", f"g_{j}")
-       matching = nx.max_weight_matching(G, maxcardinality=True)
-       tp = len(matching)
-       precision = tp / len(preds) if preds else 0.0
-       recall = tp / len(golds) if golds else 0.0
-       f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-       return precision, recall, f1
-   ```
+7. **Run zero-shot evaluation.** Query each model with standardized prompts, temperature=0.6, max_tokens=8192. Parse structured responses. Do not fine-tune or few-shot—the goal is measuring intrinsic domain capability.
 
-5. **Generate difficulty scores and select the Hard subset.** Run all candidate models on the full benchmark. For each item, compute `mu` (mean correctness across models) and `sigma` (variance). Score difficulty as `D = (1 - mu) + 0.5 * sigma`. Rank items within each task by D descending. Select the top N (e.g., 400) per task.
+8. **Construct the Hard subset.** After collecting all model predictions: for each item, compute mu (mean accuracy across models) and sigma (variance). Score D = (1 - mu) + 0.5 * sigma. Rank items descending by D within each task. Select top-N (e.g., 400) per task.
 
-   ```python
-   import numpy as np
+9. **Report dual performance.** For every model and every task, report both Full-set and Hard-subset scores side by side. The gap (Full minus Hard) reveals robustness. Macro-average across tasks for the headline score.
 
-   def compute_difficulty(item_results: list[list[bool]], top_n: int = 400) -> list[int]:
-       """item_results[i][j] = True if model j got item i correct."""
-       scores = []
-       for results in item_results:
-           mu = np.mean(results)
-           sigma = np.var(results)
-           d = (1 - mu) + 0.5 * sigma
-           scores.append(d)
-       ranked = np.argsort(scores)[::-1]
-       return ranked[:top_n].tolist()
-   ```
-
-6. **Reframe open-ended tasks as decision recognition with embedding-retrieved distractors.** For each item requiring a clinical/expert judgment (e.g., "What syndrome does this case present?"), encode the case and all candidate labels using a lightweight embedding model. Retrieve the top-K nearest labels by cosine similarity. Use the gold label as the correct answer and select 3-4 semantically close but incorrect labels as distractors.
-
-   ```python
-   from sentence_transformers import SentenceTransformer
-   import numpy as np
-
-   def generate_distractors(case_text: str, gold_label: str, all_labels: list[str],
-                            model_name: str = "Qwen/Qwen3-0.6B", top_k: int = 1000,
-                            n_distractors: int = 3) -> list[str]:
-       model = SentenceTransformer(model_name)
-       case_emb = model.encode([case_text])
-       label_embs = model.encode(all_labels)
-       sims = np.dot(label_embs, case_emb.T).flatten()
-       ranked_idx = np.argsort(sims)[::-1][:top_k]
-       distractors = []
-       for idx in ranked_idx:
-           if all_labels[idx] != gold_label and len(distractors) < n_distractors:
-               distractors.append(all_labels[idx])
-       return distractors
-   ```
-
-7. **Configure zero-shot evaluation parameters.** Set consistent decoding hyperparameters across all models: temperature T=0.6, max generation length 8192 tokens, enable reasoning/thinking mode where supported. Do not apply task-specific prompt engineering to ensure fair comparison.
-
-8. **Run evaluation and compute per-task and aggregate scores.** Execute each model against all items. Parse outputs into structured predictions (choice letter, label set, numeric value). Apply the correct metric per task type. Report instance-level macro-averaged scores to ensure equal task weighting.
-
-9. **Analyze Full vs. Hard subset performance.** Compare model rankings on the full set and the Hard subset. A large drop on the Hard subset signals brittleness in domain reasoning. Use this gap as the primary signal for identifying where models need domain-specific improvement.
-
-10. **Generate the evaluation report with leaderboard.** Produce a table with per-task scores and overall averages for both Full and Hard subsets. Highlight tasks where the best model still falls substantially below expert baselines. Export raw per-item results for downstream error analysis.
+10. **Validate with human baselines.** Have domain experts complete a sample of the Hard subset to establish a human ceiling. Report the model-to-human gap as the primary indicator of remaining research distance.
 
 ## Concrete Examples
 
-**Example 1: Building a synonym-tolerant NER evaluator for medical records**
+**Example 1: Building a synonym-tolerant scorer for medical NER**
 
-User: "I have an LLM extracting symptom entities from clinical notes. The model outputs 'chest tightness' but the gold label says 'chest oppression'. How do I score this fairly?"
-
-Approach:
-1. Implement character-level F1 between predicted and gold entity strings
-2. Set threshold tau=0.7 for matching tolerance
-3. Build bipartite graph across all predicted and gold entity sets per instance
-4. Run maximum-cardinality matching to count true positives
-5. Compute precision, recall, and F1 from the matching
-
-Output:
-```
-Predicted: ["chest tightness", "headache", "fatigue"]
-Gold:      ["chest oppression", "headache", "lassitude"]
-
-char_f1("chest tightness", "chest oppression") = 0.72  >= 0.7 -> MATCH
-char_f1("headache", "headache") = 1.0              >= 0.7 -> MATCH
-char_f1("fatigue", "lassitude") = 0.25              < 0.7 -> NO MATCH
-
-TP=2, Precision=2/3=0.67, Recall=2/3=0.67, F1=0.67
-```
-
-**Example 2: Creating a Hard subset from multi-model evaluation results**
-
-User: "I evaluated 8 LLMs on 2000 legal reasoning questions. How do I identify the hardest questions to make a challenging test set?"
+User: "I have a TCM NER dataset where models predict syndrome names, but they use different surface forms—e.g., '气滞血瘀' vs '气滞血瘀证'. How do I score this fairly?"
 
 Approach:
-1. Collect binary correctness matrix (2000 items x 8 models)
-2. For each item compute mu (mean accuracy) and sigma (variance)
-3. Score difficulty D = (1 - mu) + 0.5 * sigma
-4. Rank by D descending and take top 400
+1. Normalize both gold and predicted labels (strip trailing classifiers like '证'/'型' if desired, but the algorithm handles this automatically).
+2. For each test instance, compute pairwise char-F1 between all predicted and gold labels.
+3. Build bipartite graph with edges where char-F1 >= 0.7.
+4. Run maximum-cardinality matching.
+5. Compute instance-level P/R/F1 from match counts, then macro-average.
 
-Output:
 ```python
-item_results = [
-    [True, False, False, False, True, False, False, False],  # Item 0: mu=0.25, sigma=0.1875, D=0.844
-    [True, True, True, True, True, True, True, False],       # Item 1: mu=0.875, sigma=0.109, D=0.180
-    [False, False, False, True, False, False, False, False],  # Item 2: mu=0.125, sigma=0.109, D=0.930
-]
-# Item 2 ranks hardest (most models fail, some disagreement)
-# Item 0 ranks next (low accuracy, high variance)
-# Item 1 ranks easiest (most models succeed)
-hard_subset_indices = compute_difficulty(item_results, top_n=400)
+from collections import Counter
+from scipy.optimize import linear_sum_assignment
+import numpy as np
+
+def char_f1(s1: str, s2: str) -> float:
+    """Character-level F1 between two strings treated as char multisets."""
+    c1, c2 = Counter(s1), Counter(s2)
+    tp = sum((c1 & c2).values())
+    fp = sum((c1 - c2).values())  # in predicted but not gold
+    fn = sum((c2 - c1).values())  # in gold but not predicted
+    if tp == 0:
+        return 0.0
+    p = tp / (tp + fp)
+    r = tp / (tp + fn)
+    return 2 * p * r / (p + r)
+
+def synonym_tolerant_f1(predicted: list[str], gold: list[str], tau: float = 0.7):
+    """DTR-F1: bipartite matching with char-F1 threshold."""
+    n, m = len(predicted), len(gold)
+    if n == 0 and m == 0:
+        return 1.0, 1.0, 1.0
+    if n == 0 or m == 0:
+        return 0.0, 0.0, 0.0
+
+    # Cost matrix (negative F1 for minimization)
+    cost = np.full((n, m), 1e9)
+    for i, p in enumerate(predicted):
+        for j, g in enumerate(gold):
+            f = char_f1(p, g)
+            if f >= tau:
+                cost[i, j] = -f
+
+    row_ind, col_ind = linear_sum_assignment(cost)
+    tp = sum(1 for r, c in zip(row_ind, col_ind) if cost[r, c] < 1e9)
+    fp = n - tp
+    fn = m - tp
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    return precision, recall, f1
 ```
 
-**Example 3: Converting open-ended diagnosis to single-choice with embedding distractors**
+Output: A scorer that gives credit for "气滞血瘀" matching "气滞血瘀证" (char-F1 ≈ 0.89 > 0.7) while rejecting "肝气郁结" as a match (char-F1 ≈ 0.25 < 0.7).
 
-User: "Our TCM evaluation has a case study asking 'What is the syndrome differentiation?' Currently it's scored with exact match and models score near 0%. How do I make this evaluable?"
+---
+
+**Example 2: Constructing a difficulty-ranked Hard subset**
+
+User: "I have a legal domain benchmark with 5,000 items and results from 10 models. I want to find the 200 hardest items that also discriminate between models."
 
 Approach:
-1. Compile a label inventory of all valid syndrome names from the training corpus
-2. Encode the case description with a sentence embedding model
-3. Retrieve top-1000 similar syndrome labels by cosine similarity
-4. Use the gold syndrome as answer A; pick 3 high-similarity but incorrect syndromes as B, C, D
-5. Present as single-choice; score with accuracy
+1. Load per-item binary correctness vectors across all 10 models.
+2. Compute per-item mean accuracy (mu) and variance (sigma).
+3. Score each item: D = (1 - mu) + 0.5 * sigma.
+4. Sort descending by D, take top 200.
 
-Output:
+```python
+import numpy as np
+
+def build_hard_subset(
+    item_ids: list[str],
+    correctness: np.ndarray,  # shape (n_items, n_models), binary
+    top_k: int = 200,
+    lambda_weight: float = 0.5
+) -> list[str]:
+    """Select hard, discriminative items using LingLan difficulty scoring."""
+    mu = correctness.mean(axis=1)       # mean accuracy per item
+    sigma = correctness.var(axis=1)     # variance per item
+    difficulty = (1 - mu) + lambda_weight * sigma
+    ranked_indices = np.argsort(-difficulty)[:top_k]
+    return [item_ids[i] for i in ranked_indices]
+
+# Example: item with mu=0.1, sigma=0.09 → D = 0.9 + 0.045 = 0.945 (hard + discriminative)
+# Item with mu=0.0, sigma=0.0 → D = 1.0 + 0.0 = 1.0 (hard but not discriminative—all fail)
+# Item with mu=0.5, sigma=0.25 → D = 0.5 + 0.125 = 0.625 (moderate but very discriminative)
 ```
-Case: "Male, 45, presents with distending pain in the hypochondrium,
-       bitter taste, dry throat, string-like rapid pulse..."
 
-Gold syndrome: "Liver-Gallbladder Damp-Heat"
+Output: A ranked list of 200 item IDs forming the Hard subset, biased toward items that are both difficult and informative for distinguishing model capabilities.
 
-Retrieved distractors (by embedding similarity to case):
-  B. Liver Qi Stagnation          (sim=0.82)
-  C. Spleen-Stomach Damp-Heat     (sim=0.79)
-  D. Liver Fire Flaming Upward    (sim=0.76)
+---
 
-Question: What is the primary syndrome differentiation?
-A. Liver-Gallbladder Damp-Heat  B. Liver Qi Stagnation
-C. Spleen-Stomach Damp-Heat     D. Liver Fire Flaming Upward
+**Example 3: Reframing open-ended diagnosis as decision recognition**
 
-This converts a 0% exact-match task into a discriminative 40-60% accuracy task
-that meaningfully differentiates model clinical reasoning ability.
+User: "Our evaluation has open-ended syndrome diagnosis questions. Models generate free text, making comparison unreliable. How do I convert this to single-choice?"
+
+Approach:
+1. Build an embedding index of all candidate syndrome labels in the domain ontology.
+2. For each test case, embed the gold syndrome label.
+3. Retrieve the top-K (e.g., 1000) nearest neighbors by cosine similarity.
+4. Sample 3 distractors from the neighbors, preferring labels that are semantically close but incorrect.
+5. Construct a 4-option MCQ (1 correct + 3 distractors). Shuffle option order.
+
+```python
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+def build_decision_recognition_items(
+    cases: list[dict],           # each has 'question', 'gold_label'
+    all_labels: list[str],       # full label ontology
+    model_name: str = "BAAI/bge-base-zh-v1.5",
+    n_distractors: int = 3,
+    top_k: int = 1000
+) -> list[dict]:
+    """Convert open-ended diagnosis to single-choice decision recognition."""
+    encoder = SentenceTransformer(model_name)
+    label_embeddings = encoder.encode(all_labels, normalize_embeddings=True)
+
+    items = []
+    for case in cases:
+        gold_emb = encoder.encode([case["gold_label"]], normalize_embeddings=True)
+        sims = (gold_emb @ label_embeddings.T).flatten()
+        top_indices = np.argsort(-sims)[:top_k]
+
+        # Filter: exclude exact gold match, pick closest distractors
+        distractors = []
+        for idx in top_indices:
+            if all_labels[idx] != case["gold_label"]:
+                distractors.append(all_labels[idx])
+            if len(distractors) == n_distractors:
+                break
+
+        options = [case["gold_label"]] + distractors
+        np.random.shuffle(options)
+        correct_idx = options.index(case["gold_label"])
+
+        items.append({
+            "question": case["question"],
+            "options": {chr(65 + i): opt for i, opt in enumerate(options)},
+            "gold_answer": chr(65 + correct_idx)
+        })
+    return items
 ```
+
+Output: Each open-ended case becomes a 4-option MCQ where distractors are semantically close (e.g., for gold "肝郁脾虚", distractors might be "肝郁气滞", "脾虚湿盛", "肝脾不调"), enabling accuracy-based scoring.
 
 ## Best Practices
 
-- **Do:** Use character-level F1 (not token-level or exact match) for synonym tolerance -- it naturally handles partial overlap in domain terminology across languages, especially Chinese where character-level decomposition is semantically meaningful.
-- **Do:** Compute difficulty from multi-model disagreement rather than human judgments -- it is cheaper, more reproducible, and directly measures what separates models.
-- **Do:** Apply instance-level macro-averaging across tasks so that each evaluation dimension contributes equally regardless of dataset size differences.
-- **Do:** Keep decoding parameters (temperature, max tokens) consistent across all models to ensure fair comparison; avoid task-specific prompt tuning in benchmarking contexts.
-- **Avoid:** Using generation-heavy scoring (BLEU, ROUGE) for clinical evaluation -- these correlate poorly with domain correctness and penalize valid reformulations.
-- **Avoid:** Setting the synonym-tolerance threshold tau too low (< 0.5) -- this risks matching genuinely different clinical concepts. The paper's tau=0.7 balances tolerance and precision.
-- **Avoid:** Selecting distractors randomly from the label space -- semantically distant distractors make items trivially easy. Always use embedding-based retrieval to ensure distractors are plausible and discriminative.
+- **Do** set the synonym-tolerance threshold tau based on your domain. In TCM, tau=0.7 works because Chinese medical terms share characters across syndromes. In English medical text, you may need tau=0.6 to tolerate abbreviation differences. Calibrate by checking a sample of true synonyms and near-misses.
+
+- **Do** report both Full and Hard subset scores for every model. The gap between them is often more informative than either score alone—it reveals brittleness on edge cases.
+
+- **Do** use character-level F1 (not token-level) for CJK languages where tokenization is inconsistent across models. For English domains, token-level (word-level) F1 is the natural analog.
+
+- **Avoid** using generation-heavy metrics (BLEU, ROUGE) for clinical label evaluation. They conflate fluency with correctness. The bipartite matching approach evaluates semantic correctness directly.
+
+- **Avoid** hand-picking hard items based on intuition. The composite-difficulty formula D = (1 - mu) + lambda * sigma is data-driven and reproducible. Items with high variance are especially valuable because they reveal what distinguishes stronger models.
+
+- **Do** enforce one-to-one matching in the synonym-tolerant protocol. Without it, a single predicted label could match multiple gold labels (or vice versa), inflating scores. The bipartite matching constraint prevents this.
 
 ## Error Handling
 
-- **Parsing failures:** When LLM output does not conform to expected format (e.g., no clear choice letter), implement a fallback regex cascade: first match `[A-D]`, then search for the full option text, then mark as unanswered. Log unparseable responses for manual review.
-- **Empty predictions in extraction tasks:** Treat as zero TP, full FN. Do not skip these items -- they represent meaningful model failures.
-- **Embedding model unavailability:** If the specified embedding model is not accessible, fall back to TF-IDF cosine similarity for distractor retrieval. Results will be noisier but still produce semantically relevant distractors.
-- **Tied difficulty scores:** When multiple items share the same D score at the Hard subset boundary, break ties by lower mu (harder items first), then by higher sigma (more discriminative items).
-- **Threshold sensitivity:** If synonym-tolerant matching produces unexpected results, visualize the character-F1 distribution between true matches and false matches. Adjust tau to the valley between the two distributions.
+- **No predictions parsed:** If a model returns unparseable output for a task, score it as TP=0, FP=0, FN=|gold| (full miss). Log the parse failure rate per model—high rates indicate prompt format issues, not domain weakness.
+
+- **Empty gold label set:** Skip items with empty gold annotations in metric computation. Flag them for data quality review.
+
+- **Threshold sensitivity:** If small changes to tau (e.g., 0.65 vs 0.75) cause large score swings, your label set has many borderline synonyms. Address this upstream with label normalization, or report results at multiple tau values.
+
+- **Degenerate distractors in decision recognition:** If embedding retrieval yields distractors that are too easy (low similarity) or identical to the gold (data duplication), add a similarity band filter: keep distractors with cosine similarity in [0.5, 0.95] relative to the gold.
+
+- **Imbalanced task sizes:** When macro-averaging across tasks of different sizes, ensure each task contributes equally to the headline score regardless of item count. Per-task scores should be computed first, then averaged.
 
 ## Limitations
 
-- **Character-level F1 is language-dependent.** The synonym-tolerant protocol works well for Chinese (where characters carry semantic weight) and reasonably for English, but may need adaptation for agglutinative languages (Turkish, Finnish) or languages with complex morphology.
-- **Difficulty scoring requires multiple models.** The Hard subset method needs evaluation results from at least 5-8 diverse models to produce stable difficulty estimates. With fewer models, sigma becomes noisy.
-- **Decision recognition reframing trades recall for precision.** Converting open-ended tasks to single-choice eliminates the ability to detect novel or creative correct answers that were not in the distractor pool. It measures recognition, not generation.
-- **Zero-shot evaluation underestimates fine-tuned models.** The benchmark methodology is designed for comparing general-purpose models. Domain-fine-tuned models may need few-shot or instruction-tuned evaluation formats to show their true capability.
-- **Distractor quality depends on label inventory size.** If the domain has fewer than ~100 candidate labels, embedding-based retrieval may not find sufficiently close distractors, reducing item discriminability.
+- **Synonym tolerance is not semantic equivalence.** Character-level F1 at tau=0.7 catches surface-form variations but misses true synonyms with completely different characters (e.g., "心悸" vs "心慌"). For such cases, integrate an external synonym dictionary or use embedding-based similarity as the matching criterion instead of char-F1.
+
+- **Hard subset stability.** The difficulty ranking depends on which models are evaluated. Adding or removing a model changes mu and sigma, potentially reshuffling the Hard subset. Pin the model set when constructing the subset for reproducible comparisons.
+
+- **Decision recognition simplifies the task.** Converting open-ended generation to single-choice makes evaluation cleaner but easier—a model might select the correct label from options but fail to generate it unprompted. Report both DR accuracy and open-ended DTR-F1 for completeness.
+
+- **Zero-shot only.** The methodology evaluates intrinsic domain knowledge without few-shot or RAG augmentation. If your use case involves retrieval, the benchmark results may not predict deployed performance.
+
+- **CJK-specific character F1.** The character-level multiset approach works naturally for Chinese (each character carries meaning). For morphologically rich languages (German, Finnish), subword-level F1 may be more appropriate than raw character F1.
 
 ## Reference
 
-**Paper:** Hua, R., Wei, Y., Shu, Z., Chang, K., & Yan, D. (2026). *LingLanMiDian: Systematic Evaluation of LLMs on TCM Knowledge and Clinical Reasoning.* arXiv:2602.01779v1. [https://arxiv.org/abs/2602.01779v1](https://arxiv.org/abs/2602.01779v1)
-
-Look for: Section 3 (benchmark construction methodology), Section 4 (synonym-tolerant protocol and metric design), and the appendix for prompt templates and full task specifications. Code and data at [https://github.com/TCMAI-BJTU/LingLan](https://github.com/TCMAI-BJTU/LingLan).
+**Paper:** [LingLanMiDian: Systematic Evaluation of LLMs on TCM Knowledge and Clinical Reasoning](https://arxiv.org/abs/2602.01779v1) (Hua et al., 2026). Focus on Section 3 (Metric Design) for the synonym-tolerant protocol and character-level F1 formulas, Section 2.3 for Hard subset construction, and Section 2.2 for decision recognition conversion. Code and data at [github.com/TCMAI-BJTU/LingLan](https://github.com/TCMAI-BJTU/LingLan).
