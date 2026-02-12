@@ -1,222 +1,196 @@
 ---
 name: "swe-world-building-software-engineering"
 description: >
-  Build Docker-free software engineering agent workflows that replace containerized execution
-  with learned surrogate models. Predicts execution feedback (stdout/stderr/exit codes) and
-  test outcomes without running code in containers. Use when asked to: "set up a Docker-free
-  agent training pipeline", "predict test results without running them", "build an execution
-  surrogate for SWE tasks", "simulate code execution feedback", "implement test-time scaling
-  for code generation", "train a software engineering agent without Docker".
+  Build and train software engineering agents without Docker by replacing containerized execution
+  with learned surrogate models that predict execution outcomes and test feedback. Apply the
+  SWE-World framework to solve code modification tasks, evaluate patches without running tests,
+  and scale inference by scoring multiple candidate solutions.
+  Trigger phrases: "fix this bug without running tests", "evaluate my patch", "predict test
+  outcomes for this change", "score candidate patches", "Docker-free agent training",
+  "test-time scaling for code fixes"
 ---
 
-# SWE-World: Docker-Free Software Engineering Agent Framework
+# SWE-World: Docker-Free Software Engineering Agents
 
-This skill enables Claude to build software engineering agent systems that operate **without Docker containers** by replacing physical code execution with a three-tier surrogate architecture: a deterministic Sandbox for file operations, a learned Transition Model (SWT) that predicts execution feedback, and a learned Reward Model (SWR) that predicts test outcomes. Based on the SWE-World framework, this approach reduces infrastructure costs while preserving the standard agent-environment interaction loop, enabling agent training via SFT, RL, and test-time scaling (TTS).
+This skill enables Claude to apply the SWE-World framework for solving software engineering tasks
+without relying on Docker containers or physical test execution. The core technique replaces
+containerized environments with two learned surrogate models -- a Transition Model (SWT) that
+predicts step-level execution feedback (stdout/stderr/exit code) and a Reward Model (SWR) that
+simulates unit test results and assigns binary pass/fail rewards. This allows evaluating code
+patches, selecting the best fix among candidates, and reasoning about execution outcomes purely
+through learned prediction, without ever instantiating a test environment.
 
 ## When to Use
 
-- When the user wants to build or train a software engineering agent but lacks Docker infrastructure or wants to reduce container overhead
-- When evaluating multiple candidate code patches and needing to rank them without executing tests in containers
-- When setting up a reinforcement learning pipeline for code modification agents that requires execution feedback
-- When implementing test-time scaling to select the best solution from multiple generated attempts
-- When building a surrogate environment that predicts stdout/stderr/exit codes for shell commands in a repository context
-- When creating a training data pipeline from real Docker rollouts to train execution prediction models
-- When the user asks to simulate pytest or test runner output for a given code patch
+- When the user asks to fix a bug or modify code in a repository where setting up the full test environment is impractical or unavailable
+- When evaluating whether a proposed patch will pass tests without actually running pytest or the project's test suite
+- When the user wants to generate multiple candidate fixes and select the best one (test-time scaling)
+- When building or training an SWE agent pipeline and needs to replace Docker-based evaluation with a surrogate
+- When reasoning about what stdout/stderr a code change would produce without executing it
+- When the user needs to triage multiple patches for a GitHub issue and rank them by likely correctness
 
 ## Key Technique
 
-SWE-World decomposes the execution environment into three components with different fidelity requirements. **File operations** (ls, cat, grep, str_replace) are deterministic and execute directly in a lightweight Sandbox without any model involvement -- LLM simulation of file contents would hallucinate and derail the agent. **Code execution commands** (running Python scripts, pytest invocations, shell commands) route to the **SWT (Surrogate World Transition)** model, which predicts structured output as `{stdout, stderr, exit_code}` conditioned on the repository state, the agent's current patch, and the command being run. **Final test evaluation** routes to the **SWR (Surrogate World Reward)** model, which generates a structured test report (pytest-style pass/fail per test case) and a binary reward signal.
+**Surrogate Environment Architecture.** SWE-World decomposes the execution environment into three tiers. (1) A **Sandbox** handles deterministic file-system operations -- `ls`, `cat`, `grep`, `str_replace`, `view`, `create` -- by maintaining a mutable workspace that tracks edits faithfully with zero hallucination risk. (2) A **Transition Model (SWT)** handles repository-specific commands like `python` or `pytest` that normally require a dependency-complete environment. SWT takes the instance metadata, the agent's current accumulated patch, and the command as context, then predicts `{"stdout": ..., "stderr": ..., "exit_code": ...}`. (3) A **Reward Model (SWR)** acts as a virtual test runner at episode end: it receives the final patch and simulates execution of the project's unit tests, producing a structured test report covering Fail-to-Pass and Pass-to-Pass test categories, plus a binary reward signal (0 or 1).
 
-The critical insight is that SWT and SWR are trained with **chain-of-thought augmentation**: a teacher model generates reasoning traces wrapped in `<think>...</think>` tags before the ground-truth output. This is especially important for SWR, where CoT boosts accuracy by over 13% and prevents reward hacking during RL training. Without CoT, the reward model's low precision causes the RL policy to collapse trajectory length and exploit the signal. The combination of deterministic file ops + learned execution prediction + learned test evaluation creates a complete Docker-free loop that supports SFT, RL (via GRPO++), and test-time scaling (sampling N trajectories and selecting the best via majority-vote SWR scoring).
+**Training and Scaling.** Both SWT and SWR are trained on real agent-Docker interaction traces collected from open-source datasets (R2E-Gym, SWE-Gym, SWE-rebench). SWR uses Chain-of-Thought (CoT) reasoning -- reverse-reasoning distillation generates intermediate logical steps before the structured output, boosting reward prediction accuracy from 0.578 to 0.712. For test-time scaling (TTS), the agent generates N candidate trajectories (e.g., N=8), each is scored M times by SWR (e.g., M=3), and the trajectory with the highest average reward is selected. This raised resolve rate from 55.0% to 68.2% on SWE-bench Verified without any Docker execution.
+
+**Why This Matters Practically.** The insight is that execution feedback is often predictable from context -- the issue description, the codebase structure, the patch diff, and the test file contents carry enough signal for a strong model to predict what would happen. This means you can reason about "will this fix work?" by analyzing the patch against the test expectations, rather than running the tests.
 
 ## Step-by-Step Workflow
 
-### 1. Classify each agent action into the correct execution tier
+1. **Analyze the issue and repository structure.** Read the bug report or feature request. Use `find_file`, `grep`, and `cat` equivalents to locate the relevant source files, test files, and any stack traces or error messages referenced in the issue.
 
-Route every agent tool call to the appropriate handler:
-- **Sandbox** (deterministic): `ls`, `cat`, `grep`, `find`, `view`, `create`, `str_replace_editor` -- execute directly against the repository filesystem
-- **SWT** (learned model): `execute_bash`, `python`, `pytest`, any shell command that produces runtime output
-- **SWR** (learned model): `submit` -- triggered once at the end of a trajectory to evaluate the final patch
+2. **Identify the Fail-to-Pass tests.** Find the specific test(s) that currently fail due to the bug. Read their assertions, expected values, and the code paths they exercise. These are the primary success criteria.
 
-### 2. Build the Sandbox with strict filesystem fidelity
+3. **Identify Pass-to-Pass tests.** Locate other tests in the same module or package that currently pass. Any fix must not break these. Catalog them as regression constraints.
 
-Implement a workspace manager that tracks the repository state as a mutable file tree. Apply `str_replace` edits atomically. Never use an LLM to simulate file reads -- serve actual file contents. Maintain a running diff (the "agent patch") representing all modifications since the initial repo state.
+4. **Formulate a hypothesis about the root cause.** Based on the issue description and failing test expectations, trace the code path to identify where the behavior diverges from what the tests expect. Document the specific function, line, and logic error.
 
-### 3. Collect transition training data from real Docker rollouts
+5. **Generate the patch using `str_replace` edits.** Make minimal, targeted changes to fix the root cause. Accumulate edits as a diff. Prefer the smallest change that addresses the failing tests without touching unrelated code.
 
-For each code execution step in a real containerized trajectory, record:
-```json
-{
-  "context": {
-    "instance_id": "repo__issue_number",
-    "problem_statement": "...",
-    "initial_analysis": "5-10 bullet points on bug symptoms and fix approach",
-    "current_patch": "unified diff of agent edits so far",
-    "command": "pytest tests/test_foo.py -x"
-  },
-  "output": {
-    "stdout": "...",
-    "stderr": "...",
-    "exit_code": 0
-  }
-}
-```
-A single rollout yields multiple SWT samples (one per execution step) and one SWR sample (from the final test evaluation).
+6. **Predict execution outcomes without running tests.** For each edit, reason about what stdout/stderr the test runner would produce. Ask: "Given this patch, would the Fail-to-Pass tests now pass? Would any Pass-to-Pass tests break?" Trace the logic manually through the changed code path.
 
-### 4. Augment training data with chain-of-thought reasoning
+7. **Generate multiple candidate patches if uncertain.** When the fix is ambiguous, produce 2-4 alternative patches with different approaches (e.g., different boundary conditions, different error handling strategies).
 
-Use a strong reasoning model to generate CoT traces for each sample. Format as:
-```
-<think>
-The command runs pytest on test_foo.py. The agent's patch modifies the parse()
-function to handle empty input. The F2P test checks empty string parsing.
-Given the fix correctly adds an early return for empty strings, this test
-should now pass. However, the patch also changes line 42 which affects
-the normalize() helper used by test_bar, which may cause a regression...
-</think>
-{"stdout": "...", "stderr": "...", "exit_code": 0}
-```
-This CoT is present during training but can be generated at inference time by the surrogate models themselves.
+8. **Score each candidate against test expectations.** For each candidate patch, simulate the test report: walk through each Fail-to-Pass test with the patched code and predict PASSED/FAILED. Walk through Pass-to-Pass tests and verify no regressions. Assign a confidence score.
 
-### 5. Train SWT on execution prediction
+9. **Select the highest-scoring candidate.** Choose the patch with the highest predicted pass rate. If scores tie, prefer the minimal patch (fewer lines changed, fewer side effects).
 
-Fine-tune a code-capable LLM (e.g., Qwen2.5-Coder-32B) on the transition dataset. The model input is the execution context (problem description, initial analysis, current patch, command + relevant code snippets). The model output is structured JSON with stdout/stderr/exit_code. Train on both CoT-augmented and non-CoT samples.
-
-### 6. Train SWR on test outcome prediction
-
-Fine-tune a separate model on reward data. Input includes the full final patch plus the actual unit test code (categorized as Fail-to-Pass and Pass-to-Pass tests). The model generates a structured pytest-style report, then outputs a binary reward `{0, 1}`. CoT augmentation is critical here -- it prevents the model from collapsing to shallow heuristics.
-
-### 7. Wire the surrogate loop for agent training
-
-Replace the Docker environment in your agent training pipeline:
-```
-Agent Action -> Router
-  |-- File operation? -> Sandbox (deterministic)
-  |-- Code execution? -> SWT(context) -> predicted {stdout, stderr, exit_code}
-  |-- Submit?         -> SWR(final_patch, tests) -> {test_report, reward}
-```
-The agent sees the same interface as a real Docker environment. No changes to the agent architecture are needed.
-
-### 8. Run Docker-free RL with GRPO++
-
-Use Group Relative Policy Optimization with these stabilizations:
-- Leave-one-out advantage estimation across a group of rollouts per problem
-- Length normalization to prevent long-horizon bias
-- Partial reward: if the agent doesn't submit, assign `reward = 0.5 * SWR_score` to provide learning signal from incomplete trajectories
-- Sample 4 parallel rollouts per problem, batch size of 32 problems
-
-### 9. Implement test-time scaling via SWR majority voting
-
-At inference, generate N candidate trajectories (N=8 works well). For each candidate:
-1. Run the full trajectory through the surrogate environment
-2. Score the final patch with SWR M=3 times
-3. Compute `score = mean(reward_1, reward_2, reward_3)`
-4. Select the trajectory with the highest average score
-
-This provides monotonic improvement with more candidates and is more reliable than token-probability-based verifiers.
-
-### 10. Validate surrogate fidelity periodically
-
-Compare surrogate predictions against real Docker execution on a held-out set. Track:
-- SWT: exact match rate on exit codes, BLEU/ROUGE on stdout
-- SWR: precision/recall on binary reward, accuracy on per-test pass/fail
-- Agent: resolve rate correlation between surrogate and real evaluation
+10. **Present the solution with predicted test outcomes.** Show the final patch as a diff, include the predicted test report (which tests pass, which might still fail), and flag any uncertainty or edge cases that warrant actual execution to confirm.
 
 ## Concrete Examples
 
-**Example 1: Building an execution prediction model for a Python repository**
+**Example 1: Fixing a string parsing bug without running tests**
 
-User: "I want to predict what pytest output would look like for a given code patch without actually running the tests."
-
-Approach:
-1. Collect the repository source, the code patch (unified diff), and the test file contents
-2. Construct the SWT input context:
-   ```
-   Problem: Function parse_date() raises ValueError on ISO 8601 dates with timezone offsets
-   Patch: [unified diff adding timezone handling to parse_date()]
-   Command: pytest tests/test_date_parser.py::test_iso8601_tz -xvs
-   Relevant code: [test function source + modified function source]
-   ```
-3. Feed this context to the SWT model, which generates:
-   ```json
-   {
-     "stdout": "tests/test_date_parser.py::test_iso8601_tz PASSED\n\n1 passed in 0.03s",
-     "stderr": "",
-     "exit_code": 0
-   }
-   ```
-4. The agent uses this predicted feedback to decide whether to submit or continue debugging
-
-Output: Structured execution prediction without Docker, enabling the agent to iterate on its patch.
-
-**Example 2: Ranking multiple patches with test-time scaling**
-
-User: "I generated 8 different patches for this bug fix. How do I pick the best one without running the test suite 8 times?"
+```
+User: This function `parse_duration("3h30m")` returns 330 instead of 12600.
+The test `test_parse_duration_hours_minutes` is failing. Fix it without
+running the test suite -- we can't set up the environment right now.
 
 Approach:
-1. For each of the 8 candidate patches, construct the SWR evaluation context:
-   - Include the patch diff, the Fail-to-Pass test code, and the Pass-to-Pass regression tests
-2. Score each patch 3 times with SWR (to reduce variance):
-   ```
-   Patch A: scores [1, 1, 1] -> avg = 1.0
-   Patch B: scores [1, 0, 1] -> avg = 0.67
-   Patch C: scores [0, 0, 0] -> avg = 0.0
-   ...
-   ```
-3. Select Patch A (highest average score) as the final submission
-4. Optionally verify only the top-ranked patch in a real Docker environment
+1. Read parse_duration() in utils/time.py -- find it multiplies hours by 100
+   instead of 3600
+2. Read test_parse_duration_hours_minutes -- confirms expected output is
+   3*3600 + 30*60 = 12600
+3. Check other tests (test_parse_duration_minutes_only, test_parse_duration_seconds)
+   to identify regression risk
+4. Generate patch: change `hours * 100` to `hours * 3600`
+5. Predict outcomes:
+   - test_parse_duration_hours_minutes: PASSED (3*3600 + 30*60 = 12600)
+   - test_parse_duration_minutes_only: PASSED (unchanged code path)
+   - test_parse_duration_seconds: PASSED (unchanged code path)
 
-Output: Best patch selected with 3 Docker runs instead of 8, or zero if trusting the surrogate.
+Output:
+--- a/utils/time.py
++++ b/utils/time.py
+@@ -15,7 +15,7 @@
+ def parse_duration(s: str) -> int:
+     total = 0
+     if hours:
+-        total += int(hours) * 100
++        total += int(hours) * 3600
+     if minutes:
+         total += int(minutes) * 60
+     return total
 
-**Example 3: Setting up a Docker-free RL training loop**
+Predicted test report:
+  PASSED: test_parse_duration_hours_minutes (F2P)
+  PASSED: test_parse_duration_minutes_only (P2P)
+  PASSED: test_parse_duration_seconds (P2P)
+  Confidence: HIGH -- single arithmetic constant fix, no side effects
+```
 
-User: "I want to fine-tune my code agent with RL but I don't have GPU resources to run hundreds of Docker containers in parallel."
+**Example 2: Selecting best patch among candidates via test-time scoring**
+
+```
+User: The CSV export crashes on empty datasets. I have three possible fixes
+from my team. Which one is most likely correct?
+
+Patch A: Adds `if not data: return ""` at the top of export_csv()
+Patch B: Wraps the header generation in `if data else []`
+Patch C: Changes the for-loop to handle empty iterables with a default
 
 Approach:
-1. Pre-train SWT and SWR models on collected Docker interaction data (one-time cost)
-2. Set up the three-tier routing: Sandbox for file ops, SWT for execution, SWR for rewards
-3. Configure GRPO++ with 4 rollouts per problem, 32-problem batches:
-   ```python
-   config = {
-       "lr": 1e-6,
-       "rollouts_per_problem": 4,
-       "batch_size": 32,
-       "max_turns": 150,
-       "max_context_tokens": 108000,
-       "temperature": 1.0,
-       "partial_reward_weight": 0.5,  # for non-submit endings
-   }
-   ```
-4. Run RL training where all execution feedback comes from SWT/SWR models running on the same GPU cluster as the agent -- no Docker containers needed
-5. Validate periodically against real Docker evaluation to monitor surrogate drift
+1. Read the failing test: test_export_csv_empty expects an empty string output
+2. Read test_export_csv_with_data: expects "name,age\nAlice,30\n"
+3. Read test_export_csv_headers_only: expects "name,age\n" (headers, no rows)
+4. Score each patch:
+   - Patch A: F2P passes (returns "" for empty). But test_export_csv_headers_only
+     would FAIL -- headers-only dataset is truthy but has no rows, and this
+     patch bypasses header generation entirely. Score: 1/3 tests impacted.
+   - Patch B: F2P passes (empty data -> no headers). But test_export_csv_headers_only
+     FAILS -- headers should still appear for headers-only case. Score: 1/3.
+   - Patch C: F2P passes (empty iterable handled). test_export_csv_with_data
+     PASSES (loop runs normally). test_export_csv_headers_only PASSES (headers
+     generated, loop produces nothing). Score: 3/3.
+5. Select Patch C as the best candidate.
 
-Output: RL-trained agent achieving ~55% on SWE-bench Verified using zero Docker resources during training.
+Output:
+Recommended: Patch C
+  Predicted: 3/3 tests pass (F2P + all P2P)
+  Reason: Handles empty case without breaking header generation for
+  non-empty datasets. Patches A and B both break test_export_csv_headers_only
+  because they conflate "empty data" with "no headers needed."
+```
+
+**Example 3: Reasoning about execution feedback for a command**
+
+```
+User: I added a new regex pattern to the validator. What would happen if I
+run `python -m pytest tests/test_validator.py::test_email_validation -v`?
+
+Approach:
+1. Read the user's patch to the validator module
+2. Read test_email_validation to understand test cases and assertions
+3. Trace each test case through the new regex:
+   - "user@example.com" -> matches -> assert valid: PASS
+   - "user@.com" -> does NOT match with new regex -> assert invalid: PASS
+   - "user@exam ple.com" -> new regex rejects spaces -> assert invalid: PASS
+   - "user+tag@example.com" -> new regex lacks + in character class ->
+     assert valid: FAIL (regex rejects it, but test expects valid)
+4. Predict stdout:
+   FAILED tests/test_validator.py::test_email_validation[user+tag] -
+   AssertionError: Expected True but got False
+   1 failed, 3 passed
+
+Output:
+Predicted execution:
+  stdout: "FAILED test_email_validation[user+tag@example.com]"
+  stderr: "AssertionError: assert False == True"
+  exit_code: 1
+
+Root cause: Your regex character class `[a-zA-Z0-9._-]` before the @
+is missing the `+` character. Change to `[a-zA-Z0-9._+-]` to fix.
+```
 
 ## Best Practices
 
-- **Do:** Keep file operations deterministic in the Sandbox. Never use an LLM to predict the output of `cat`, `grep`, or `ls` -- hallucinated file contents will catastrophically mislead the agent.
-- **Do:** Include chain-of-thought augmentation when training SWR. Without it, precision drops enough to cause reward hacking during RL, where the agent learns to exploit the model's blind spots instead of actually solving problems.
-- **Do:** Use majority voting (M>=3) when scoring candidates with SWR at test time. Single-shot SWR predictions have meaningful variance that averaging smooths out.
-- **Do:** Include both Fail-to-Pass and Pass-to-Pass tests in SWR context. Regression test outcomes are essential for distinguishing patches that fix the bug but break other functionality.
-- **Avoid:** Training SWT and SWR on the same model checkpoint as the agent itself. The surrogate models should be independently trained to prevent circular dependencies in the learning signal.
-- **Avoid:** Skipping the initial analysis step. Providing a structured 5-10 bullet point analysis of the bug symptoms, affected code regions, and fix strategy significantly improves both SWT prediction accuracy and agent performance.
+- **Do:** Read the actual test files before predicting outcomes. The test assertions are the ground truth for what "correct" means -- never guess at expected values.
+- **Do:** Separate Fail-to-Pass tests (the bug's tests) from Pass-to-Pass tests (regression guards). Both matter equally for patch correctness.
+- **Do:** Generate multiple candidate patches when the root cause is ambiguous, then score each against the full test suite expectations. This is the TTS principle.
+- **Do:** Use Chain-of-Thought reasoning when predicting test outcomes -- trace the code path step by step rather than pattern-matching on the diff.
+- **Avoid:** Predicting outcomes for commands that depend on external state (network calls, database contents, filesystem timestamps) -- these are not reliably predictable from code alone.
+- **Avoid:** Overconfidence in predictions. Always flag uncertainty levels. A predicted "PASS" on a complex integration test is less reliable than on a unit test with simple assertions.
+- **Avoid:** Making large, sweeping patches. The SWE-World framework demonstrates that minimal patches are both easier to evaluate and more likely to be correct.
 
 ## Error Handling
 
-- **SWT predicts wrong exit code:** The agent may proceed down an incorrect debugging path. Mitigate by training SWT on diverse error types and including relevant source code (not just the command) in the context. Monitor exit code accuracy on held-out data -- below 80% accuracy suggests insufficient training data.
-- **SWR gives false positives (predicts pass when tests would fail):** This is the most dangerous failure mode in RL, leading to reward hacking. Use CoT-augmented SWR and validate SWR precision on held-out data. If precision drops below 85%, retrain before continuing RL.
-- **SWR gives false negatives:** Less dangerous but wastes good patches. In TTS, majority voting (M=3) reduces false negatives significantly compared to single-shot evaluation.
-- **Sandbox state diverges from expected:** If the agent issues commands that modify the filesystem in ways the Sandbox doesn't handle (e.g., `mv`, `chmod`), extend the Sandbox with deterministic handlers for those operations rather than routing them to SWT.
-- **Context length overflow:** Long trajectories with many execution steps can exceed model context limits. Truncate older interaction history while preserving the current patch diff and problem statement, which are the most critical context elements.
+- **Ambiguous test expectations:** When tests use dynamic fixtures, mock objects, or parameterized inputs that aren't fully visible, explicitly state which test parameters you can and cannot predict outcomes for.
+- **Missing test files:** If the repository lacks tests for the affected code, fall back to manual reasoning about the code's behavior and recommend writing tests as part of the fix.
+- **Complex execution dependencies:** When a command would trigger import chains, database migrations, or external service calls, acknowledge that surrogate prediction is unreliable and recommend actual execution for that specific step.
+- **Conflicting patches:** When multiple candidates score equally, present all tied candidates with their tradeoffs rather than arbitrarily picking one.
 
 ## Limitations
 
-- **Surrogate fidelity ceiling:** The learned models cannot perfectly replicate real execution. Complex runtime behaviors (concurrency bugs, memory issues, environment-specific failures) are poorly predicted. Best suited for logic bugs, type errors, and API misuse patterns.
-- **Training data dependency:** SWT and SWR require real Docker rollout data for initial training. The framework eliminates Docker at training/inference time for the *agent*, but not for building the surrogate models themselves.
-- **Repository coverage:** Surrogate accuracy degrades on repositories or languages not well-represented in the training data. Performance is strongest on Python repositories with pytest-style test suites.
-- **No real environment side effects:** The surrogate cannot capture actual side effects like network calls, database writes, or file system race conditions. It is limited to predicting textual execution output.
-- **Reward model drift:** As the agent policy improves through RL, it may produce patches that fall outside the SWR training distribution, reducing reward accuracy. Periodic retraining with on-policy data is recommended.
+- **Integration and end-to-end tests** that depend on runtime state, database fixtures, or network services cannot be reliably predicted from code analysis alone. This technique works best for unit tests with deterministic inputs and outputs.
+- **Dynamic language features** (metaprogramming, monkey-patching, runtime code generation) reduce prediction accuracy because the execution path cannot be statically traced.
+- **Large-scale refactors** touching dozens of files produce patches too complex for reliable manual test outcome prediction. The technique is most effective for focused, few-file changes.
+- **Flaky tests** that depend on timing, ordering, or randomness are inherently unpredictable by any surrogate model.
+- **Environment-specific bugs** (platform-dependent behavior, version-specific APIs) require knowing the exact runtime configuration, which may not be available from code alone.
 
 ## Reference
 
-**Paper:** [SWE-World: Building Software Engineering Agents in Docker-Free Environments](https://arxiv.org/abs/2602.03419v1) (Sun et al., 2026). Focus on Section 3 (three-tier surrogate architecture), Section 4.2 (CoT augmentation for SWR), and Section 5.3 (TTS via majority voting) for the most actionable implementation details. Code: [github.com/RUCAIBox/SWE-World](https://github.com/RUCAIBox/SWE-World).
+**Paper:** [SWE-World: Building Software Engineering Agents in Docker-Free Environments](https://arxiv.org/abs/2602.03419v1) (Sun et al., 2026)
+**Key takeaway:** Execution feedback is learnable -- an LLM trained on real agent-environment traces can predict stdout/stderr/exit codes and test pass/fail with sufficient accuracy (0.77 reward accuracy) to train agents from 6.2% to 55.0% resolve rate without Docker, and to 68.2% with test-time scaling by scoring 8 candidate trajectories.
+**Code:** [github.com/RUCAIBox/SWE-World](https://github.com/RUCAIBox/SWE-World)
