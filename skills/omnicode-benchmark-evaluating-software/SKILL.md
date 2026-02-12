@@ -1,247 +1,199 @@
 ---
 name: "omnicode-benchmark-evaluating-software"
-description: >
-  Evaluate and improve coding agent performance across four real-world software engineering task
-  categories: bug fixing, test generation, code review response, and style fixing -- in Python,
-  Java, and C++. Uses the OmniCode multi-dimensional evaluation framework to expose blind spots
-  in agent capabilities beyond simple patch generation.
-  Trigger phrases: "evaluate my coding agent", "benchmark software engineering tasks",
-  "test generation quality", "code review response", "style fixing evaluation",
-  "multi-language agent benchmark"
+description: "Evaluate and improve code across four software engineering dimensions: bug fixing, test generation, code review fixing, and style fixing — using the OmniCode multi-task framework for Python, Java, and C++. Use when user says 'evaluate my code quality', 'run a full SE audit', 'generate tests for this repo', 'fix style violations', 'review and fix this code', or 'benchmark my agent on SE tasks'."
 ---
 
-# OmniCode: Multi-Dimensional Software Engineering Agent Evaluation
+# OmniCode: Multi-Dimensional Software Engineering Evaluation
 
-This skill enables Claude to apply the OmniCode evaluation framework to assess and improve coding
-agent performance across four distinct software engineering dimensions: bug fixing, test generation,
-code review response, and style fixing. Unlike narrow benchmarks (HumanEval, SWE-Bench) that only
-measure patch generation, OmniCode reveals that agents strong at bug fixing often fail catastrophically
-at test generation (as low as 4.5% when vacuous tests are filtered) and struggle with non-Python
-languages. This skill teaches Claude to systematically evaluate agent output using OmniCode's
-methodology and to structure its own responses to match the rigor these tasks demand.
+This skill enables Claude to systematically evaluate and improve codebases across the four core dimensions identified by the OmniCode benchmark: **bug fixing**, **test generation**, **code review fixing**, and **style fixing**. Rather than treating code quality as a single axis (does it compile? does the patch apply?), this approach mirrors how real software engineers work — simultaneously reasoning about correctness, test coverage, reviewer feedback, and style conformance across Python, Java, and C++. The technique exposes blind spots that single-task evaluations miss, such as an agent that can fix bugs but cannot write the tests that would have caught them.
 
-## When to Use
+## When to Use This Skill
 
-- When the user asks to evaluate a coding agent's capabilities beyond simple code generation
-- When generating tests that must discriminate correct implementations from incorrect ones (not just pass on the correct code)
-- When responding to code review feedback to produce an improved patch
-- When fixing style/linter violations without breaking functionality
-- When the user needs to assess agent performance across Python, Java, and C++ simultaneously
-- When building a synthetic evaluation pipeline to generate diverse SE tasks from a small set of real-world instances
-- When the user asks to identify blind spots in an LLM coding workflow (e.g., "why do my AI-generated tests miss bugs?")
+- When the user asks to **audit a codebase** for quality across multiple dimensions (not just "find bugs")
+- When the user wants to **generate comprehensive tests** that catch real defects, not just achieve line coverage
+- When the user needs to **fix linter/style violations** without breaking functionality (Pylint, Checkstyle, PMD, Clang-Tidy)
+- When the user asks to **respond to code review feedback** by producing an improved patch that addresses reviewer comments
+- When the user wants to **benchmark or evaluate a coding agent** on diverse SE tasks beyond patch generation
+- When the user needs to **synthetically generate SE tasks** (bug-seeding, style-breaking, test-gap creation) from an existing codebase for training or evaluation purposes
+- When the user asks to improve code that spans **multiple languages** (Python, Java, C++) in a single project
 
 ## Key Technique
 
-OmniCode's core insight is that software engineering competence is multi-dimensional. An agent that
-excels at bug fixing (56.4% on Python) may perform poorly at test generation (18.7%) or style
-fixing in C++ (18.8%). The benchmark operationalizes this through four task categories with
-category-specific evaluation metrics. Bug fixing and code review response use test-suite pass
-rates (fail-to-pass + regression). Test generation uses a discriminative metric: generated tests
-must pass on the ground-truth patch AND fail on all known-bad patches, filtering out vacuous tests
-that pass everything. Style fixing uses a net-resolution score: max((resolved - new_violations) /
-original_violations, 0), which is zeroed if any functional test breaks.
+OmniCode's core insight is that software engineering ability is not one-dimensional. Prior benchmarks like SWE-Bench measure only patch generation — whether an agent can produce a diff that makes failing tests pass. OmniCode decomposes SE competence into four orthogonal categories, each with distinct evaluation criteria:
 
-The synthetic generation framework is equally important. Starting from only 494 real GitHub instances
-across 28 repositories, OmniCode produces 1,794 tasks by: (1) collecting failed LLM attempts as
-bad patches for test generation validation, (2) systematically perturbing correct patches to create
-adversarial variants, (3) generating realistic code review feedback using LLMs given the problem,
-a bad patch, and the correct solution, and (4) extracting style violations via language-specific
-linters (pylint, clang-tidy, PMD/Checkstyle). This pipeline lets teams create rigorous evaluations
-from limited real-world data without manual annotation at scale.
+1. **Bug Fixing**: Given a buggy repository and issue description, produce a minimal patch. Evaluated by running the repository's existing test suite — the patch must make failing tests pass without breaking passing tests (`FAIL_TO_PASS` and `PASS_TO_PASS` test sets).
+2. **Test Generation**: Given a repository and a bug description, write new tests using the project's existing test framework (pytest, Maven/Gradle, CMake). Tests are evaluated with a dual criterion: they must *fail* on the buggy code and *pass* on the fixed code, ensuring they actually detect the defect rather than being vacuous.
+3. **Code Review Fixing**: Given a failed patch plus reviewer comments identifying specific problems, produce an improved patch that addresses the reviewer's feedback while still fixing the original issue. This evaluates the ability to incorporate human feedback into code changes.
+4. **Style Fixing**: Given code with linter violations, fix all violations without altering program behavior. Evaluated by (a) re-running the linter to confirm zero violations and (b) re-running the test suite to confirm no regressions. Language-specific tools: Pylint (Python), Checkstyle/PMD (Java), Clang-Tidy (C++).
 
-A critical finding: patch complexity -- measured as (delta_files + delta_hunks + delta_lines/10) --
-strongly predicts agent success. Resolved instances cluster at low complexity while failures show
-heavy-tailed distributions. Bug-fixing and code-review-response performance correlate strongly
-(Pearson 0.921), but style-fixing is weakly correlated (0.512), meaning these are genuinely distinct
-capabilities requiring separate evaluation.
+The second key contribution is a **synthetic task generation framework** that creates realistic tasks from limited real-world data. This works by mining real repositories for authentic patterns (bugs from actual commits, style from actual linter runs), then instrumenting the code to produce controlled variants — for instance, generating ~25 "bad patches" per bug instance using LLMs, then validating each against the test suite. This avoids data leakage (tasks are not in training sets) while maintaining real-world difficulty distributions.
 
 ## Step-by-Step Workflow
 
-1. **Classify the task category.** Determine which of the four OmniCode categories the current
-   request maps to: bug fixing (issue + failing tests), test generation (write discriminative tests),
-   code review response (patch + reviewer feedback), or style fixing (linter violations to resolve).
+### For Evaluating/Improving a Codebase
 
-2. **Identify the language and gather context.** Determine if the target is Python, Java, or C++.
-   Read the repository structure, existing test framework (pytest, JUnit, Google Test), and any
-   linter configurations (.pylintrc, .clang-tidy, pmd-ruleset.xml).
+1. **Identify the language and build system.** Determine if the project uses Python (pytest), Java (Maven/Gradle), or C++ (CMake). This dictates which linters and test frameworks apply.
 
-3. **For bug fixing:** Read the issue description and failing test cases. Identify the minimal
-   patch location using the fail-to-pass test as a guide. Generate the smallest diff that makes
-   failing tests pass while keeping all existing tests green. Verify the patch touches the fewest
-   files and hunks possible (lower complexity = higher success probability).
+2. **Run the existing test suite to establish a baseline.** Record which tests pass and which fail. This creates the `PASS_TO_PASS` baseline — any changes must not regress these.
 
-4. **For test generation:** Write tests that are *discriminative*, not just correct-path. Each test
-   must: (a) pass on the correct implementation, (b) fail on at least one plausible incorrect
-   implementation. Generate candidate bad patches by introducing common mutation patterns (off-by-one,
-   wrong operator, missing edge case, swapped arguments). Validate each test against these bad
-   patches mentally or via execution.
+3. **Perform bug-fixing analysis.** For each known issue or failing test, isolate the minimal code change needed. Produce a unified diff (`model_patch`) that targets only the affected files. Verify the patch by running the full test suite.
 
-5. **For code review response:** Parse the reviewer's feedback into a checklist of specific
-   requested changes. Apply each fix to the existing patch incrementally. After each change, verify
-   the full test suite still passes. Flag any reviewer suggestions that conflict with test behavior.
+4. **Generate defect-detecting tests.** For each bug fix, write at least one test that (a) fails on the buggy version and (b) passes on the fixed version. Use the project's existing test framework and conventions — match the test file naming, assertion style, and fixture patterns already in use.
 
-6. **For style fixing:** Run or simulate the appropriate linter for the language. Group violations
-   by file and rule. Fix violations in order of confidence (formatting > naming > structural).
-   After each batch of fixes, verify no functional tests break. Track the net score:
-   (resolved - newly_introduced) / original_count.
+5. **Run language-specific linters to surface style violations.**
+   - Python: `pylint --output-format=json <files>`
+   - Java: `checkstyle -c /google_checks.xml <files>` and/or `pmd check -R rulesets/java/quickstart.xml -d <files>`
+   - C++: `clang-tidy <files> -- <compile_flags>`
 
-7. **Apply the complexity heuristic.** Before submitting, compute the patch complexity:
-   delta_files + delta_hunks + delta_lines/10. If this exceeds ~15, look for ways to simplify.
-   Split large patches into smaller, independently testable changes when possible.
+6. **Fix style violations one category at a time.** Group violations by rule (e.g., all `missing-docstring`, all `line-too-long`). Apply fixes, then re-run both the linter (confirm violation count drops to zero) and the test suite (confirm no regressions).
 
-8. **Validate with the discriminative test criterion.** For any generated tests, mentally simulate
-   or actually run them against 2-3 plausible incorrect implementations. If a test passes on all
-   variants, it is vacuous and must be strengthened with tighter assertions.
+7. **Simulate code review feedback.** If a proposed patch exists, review it for common problems: incomplete fixes, introduced side effects, violated conventions. Produce specific, actionable reviewer comments, then generate an improved patch addressing each comment.
 
-9. **Cross-language verification.** If the task involves Java or C++, double-check build system
-   integration (Maven/Gradle for Java, CMake/Make for C++), compilation, and test runner
-   configuration. Agents fail on non-Python tasks primarily due to build/environment issues rather
-   than logic errors.
+8. **Produce a structured evaluation report.** For each dimension, report:
+   - Bug Fixing: number of issues resolved / total, with `FAIL_TO_PASS` and `PASS_TO_PASS` results
+   - Test Generation: coverage delta and mutation kill rate of new tests
+   - Style Fixing: violation count before/after, zero-regression confirmation
+   - Review Fixing: number of reviewer comments addressed in the revised patch
 
-10. **Report results using OmniCode metrics.** Present pass/fail using the category-appropriate
-    metric: test pass rate for bug fixing and review response, discriminative pass rate for test
-    generation, and net-resolution score for style fixing.
+9. **Validate all changes in isolation.** Apply each category's changes independently to the base commit. Run the full test suite for each to ensure no cross-contamination between fix types.
+
+10. **Prioritize by impact.** Rank findings by severity: correctness bugs first, then missing test coverage for critical paths, then review-flagged issues, then style violations.
+
+### For Benchmarking a Coding Agent
+
+1. **Prepare instance files.** Structure tasks as JSON with fields: `instance_id`, `repo`, `base_commit`, `patch` (ground truth), `test_patch`, `FAIL_TO_PASS`, `PASS_TO_PASS`.
+2. **Run the agent on each task category separately** (`--BugFixing`, `--TestGeneration`, `--StyleReview`, `--ReviewFix`).
+3. **Collect predictions** in the format: `{"instance_id": "...", "model_patch": "...", "model_name_or_path": "..."}`.
+4. **Evaluate using containerized execution** (Docker or Apptainer) to ensure reproducibility.
+5. **Report per-category, per-language pass rates** to identify specific weaknesses.
 
 ## Concrete Examples
 
-**Example 1: Discriminative Test Generation**
+**Example 1: Multi-dimensional audit of a Python module**
 
-User: "Write tests for this Python function that calculates shipping cost. The function has a bug
-where orders over $100 should get free shipping but the threshold check uses `>` instead of `>=`."
-
-Approach:
-1. Identify the ground-truth fix: change `> 100` to `>= 100`
-2. Write tests that pass on the correct implementation
-3. Generate bad-patch variants: (a) original bug (`> 100`), (b) wrong threshold (`> 99`),
-   (c) missing discount entirely
-4. Ensure at least one test fails on each bad variant
-
-Output:
-```python
-def test_free_shipping_at_exact_threshold():
-    """Discriminative: fails on > 100 bug, passes on >= 100 fix."""
-    assert calculate_shipping(order_total=100.00) == 0.00
-
-def test_shipping_charged_below_threshold():
-    """Passes on both correct and buggy -- not discriminative alone."""
-    assert calculate_shipping(order_total=50.00) == 5.99
-
-def test_free_shipping_above_threshold():
-    """Passes on both correct and buggy -- not discriminative alone."""
-    assert calculate_shipping(order_total=150.00) == 0.00
-
-def test_shipping_just_below_threshold():
-    """Discriminative against wrong-threshold variant (> 99)."""
-    assert calculate_shipping(order_total=99.99) == 5.99
-```
-
-Key: `test_free_shipping_at_exact_threshold` is the discriminative test -- it fails on the buggy
-`> 100` implementation but passes on the correct `>= 100`. Without it, a test suite could score
-100% on the correct code yet miss the bug entirely.
-
----
-
-**Example 2: Code Review Response**
-
-User: "The reviewer said my patch for the database connection retry logic has three issues:
-(1) the retry count should be configurable, not hardcoded to 3, (2) exponential backoff is
-missing, and (3) the exception type is too broad."
+User: "Audit this Python module for bugs, missing tests, and style issues"
 
 Approach:
-1. Parse feedback into three discrete changes
-2. Apply each fix sequentially, verifying tests pass after each
-3. Keep the diff minimal -- don't refactor unrelated code
-
-Output:
-```python
-# Before (original patch):
-def connect_with_retry(db_url):
-    for attempt in range(3):
-        try:
-            return create_connection(db_url)
-        except Exception:
-            time.sleep(1)
-    raise ConnectionError("Failed after 3 retries")
-
-# After (review-response patch):
-def connect_with_retry(db_url, max_retries=3):          # Fix 1: configurable
-    for attempt in range(max_retries):
-        try:
-            return create_connection(db_url)
-        except (ConnectionError, TimeoutError):          # Fix 3: specific exceptions
-            time.sleep(2 ** attempt)                     # Fix 2: exponential backoff
-    raise ConnectionError(f"Failed after {max_retries} retries")
-```
-
----
-
-**Example 3: Style Fixing with Net-Resolution Scoring**
-
-User: "pylint reports 12 violations in my module. Fix them without breaking the tests."
-
-Approach:
-1. Read all 12 violations, group by rule (e.g., 4x line-too-long, 3x missing-docstring,
-   2x unused-import, 2x invalid-name, 1x broad-except)
-2. Fix highest-confidence first: unused-import (remove), line-too-long (wrap)
-3. After each batch, verify functional tests pass
-4. Track score: if 10 resolved and 1 new violation introduced, score = (10-1)/12 = 75%
+1. Read the module and its existing test file
+2. Run `pytest --tb=short` to establish the passing test baseline
+3. Identify logic bugs by analyzing control flow, edge cases, and boundary conditions
+4. Write new pytest tests targeting discovered bugs (must fail on current code)
+5. Produce minimal patches for each bug (verify tests now pass)
+6. Run `pylint` on the module, collect violations grouped by rule
+7. Fix violations (e.g., add type hints, rename variables to snake_case) and re-run pytest
 
 Output:
 ```
-Style Fix Report:
-- Resolved: 11 of 12 violations
-- New violations introduced: 0
-- Net resolution score: 11/12 = 91.7%
-- Remaining: 1 x C0116 (missing-function-docstring) -- skipped because adding a docstring
-  to `_internal_helper` would be speculative without domain context
-- All 47 functional tests: PASSING
+## Audit Report: utils/parser.py
+
+### Bug Fixing (2 issues found)
+- **Off-by-one in `parse_range()`** (line 47): `range(start, end)` should be
+  `range(start, end + 1)`. Patch: single-line change. Tests: 3 existing pass,
+  1 new test added.
+- **Unhandled None in `normalize()`** (line 82): crashes on `None` input.
+  Patch: early return guard. Tests: 1 new test added.
+
+### Test Generation (4 new tests)
+- `test_parse_range_inclusive_end` — fails on buggy code, passes on fix
+- `test_normalize_none_input` — fails on buggy code, passes on fix
+- `test_parse_range_empty` — covers edge case, currently passes
+- `test_normalize_unicode` — covers edge case, currently passes
+
+### Style Fixing (11 violations → 0)
+- C0114: Missing module docstring (1) — added
+- C0103: Variable name "x" doesn't conform to snake_case (3) — renamed
+- W0612: Unused variable "tmp" (1) — removed
+- C0301: Line too long >120 chars (6) — reformatted
+- All 47 existing tests still pass after style fixes.
 ```
+
+**Example 2: Java test generation for a known bug**
+
+User: "Write tests that would catch this null pointer exception in the UserService class"
+
+Approach:
+1. Read `UserService.java` and the stack trace
+2. Identify the null dereference path: `getUser()` returns null when user not found, caller does not check
+3. Examine existing test conventions (JUnit 5, Mockito, test file naming)
+4. Write tests that trigger the null path
+5. Verify: tests fail on current code, pass after adding the null check
+
+Output:
+```java
+// src/test/java/com/app/service/UserServiceTest.java
+@Test
+void getUserProfile_whenUserNotFound_shouldReturnEmpty() {
+    when(userRepository.findById(999L)).thenReturn(Optional.empty());
+
+    // This test FAILS on buggy code (NullPointerException)
+    // and PASSES on fixed code (returns Optional.empty())
+    Optional<UserProfile> result = userService.getUserProfile(999L);
+
+    assertThat(result).isEmpty();
+}
+
+@Test
+void getUserProfile_whenUserExists_shouldReturnProfile() {
+    User user = new User(1L, "alice");
+    when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+    Optional<UserProfile> result = userService.getUserProfile(1L);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getName()).isEqualTo("alice");
+}
+```
+
+**Example 3: Responding to code review feedback on a C++ patch**
+
+User: "The reviewer said my fix for the memory leak introduces a use-after-free. Help me fix the patch."
+
+Approach:
+1. Read the original buggy code, the proposed patch, and the reviewer comment
+2. Identify the use-after-free: patch calls `delete ptr` then later accesses `ptr->field`
+3. Restructure the fix: extract the needed value before deletion, or use smart pointers
+4. Run Clang-Tidy to check for additional memory safety issues
+5. Run the CMake test suite to verify both the original leak is fixed and no new failures
+
+Output:
+```diff
+- delete resource;
+- logger.log(resource->name);  // use-after-free!
++ std::string name = resource->name;  // capture before delete
++ delete resource;
++ resource = nullptr;
++ logger.log(name);
+```
+Clang-Tidy: 0 warnings. Test suite: 38/38 pass.
 
 ## Best Practices
 
-- **Do:** Write tests at boundary values where correct and incorrect implementations diverge.
-  The exact threshold, the empty input, the off-by-one -- these are where discriminative power lives.
-- **Do:** Measure patch complexity before submitting. Simpler patches (fewer files, fewer hunks)
-  have dramatically higher success rates across all four task categories.
-- **Do:** Treat each review comment as an independent, testable change. Apply and verify
-  incrementally rather than making all changes at once.
-- **Do:** Use language-specific linters as oracles for style fixing -- don't guess at style rules.
-  Run pylint/clang-tidy/PMD to get the ground truth before and after.
-- **Avoid:** Writing tests that only exercise the happy path. OmniCode shows that without bad-patch
-  validation, apparent test generation success rates inflate by 5-18 percentage points.
-- **Avoid:** Assuming Python-level success transfers to Java/C++. Agent performance drops 25-37
-  percentage points on non-Python tasks, primarily due to build system and compilation issues.
+- **Do:** Evaluate all four dimensions independently before combining changes. A style fix that accidentally changes semantics is worse than the style violation.
+- **Do:** Use the dual-criterion for test generation — a test that passes on both buggy and fixed code is worthless. Always verify the test fails on the defective version.
+- **Do:** Match existing project conventions for generated tests (naming, directory structure, assertion library, fixture patterns). Foreign-looking tests get rejected in review.
+- **Do:** Run the full test suite after every category of change, not just at the end. Catch regressions immediately.
+- **Avoid:** Fixing style violations and bugs in the same commit/patch. Keep concerns separated so reviewers can evaluate each independently.
+- **Avoid:** Generating tests that only exercise happy paths. OmniCode's evaluation specifically requires tests that detect defects — target error paths, boundary conditions, and null/empty inputs.
+- **Avoid:** Assuming one language's patterns apply to others. Python agents that perform well on bug fixing often fail on Java/C++ due to build system complexity (Maven dependency resolution, CMake configuration).
 
 ## Error Handling
 
-- **Test generation produces vacuous tests:** If all generated tests pass on both correct and
-  mutated code, systematically strengthen assertions. Add exact value checks, boundary tests,
-  and negative cases. If no discriminative test can be written, the specification may be ambiguous.
-- **Style fixes break functional tests:** Roll back the most recent batch of style changes and
-  reapply one at a time. The culprit is usually a renamed variable that was referenced elsewhere
-  or a removed import that was actually used at runtime (not detected by static analysis alone).
-- **Review response creates conflicts:** When reviewer feedback contradicts existing tests, flag
-  the conflict explicitly rather than silently choosing one interpretation. Present both options.
-- **Build failures on Java/C++:** Verify the build system configuration before attempting code
-  changes. Check that Maven/Gradle dependencies resolve and that CMake targets compile cleanly.
-  Environment setup failures account for a large share of non-Python task failures.
+- **Test suite won't run:** Check that the build system is properly configured. For Java, verify Maven/Gradle wrapper is present and dependencies resolve. For C++, ensure CMake can find required libraries. Fall back to compiling individual files if the full build is broken.
+- **Linter produces false positives:** Cross-reference linter output with the project's existing suppression rules (`.pylintrc`, `checkstyle-suppressions.xml`, `.clang-tidy`). Only fix genuine violations.
+- **Generated tests are flaky:** Avoid time-dependent assertions, filesystem-dependent paths, and network calls. Use mocking for external dependencies. Run the test 3 times to confirm determinism.
+- **Patch passes tests but breaks unreachable code:** Run the linter in addition to the test suite. Static analysis catches issues (unused imports, dead code) that tests miss.
+- **Review fix introduces new issues:** Apply the reviewer's feedback incrementally. After each comment is addressed, re-run the full test suite before proceeding to the next.
 
 ## Limitations
 
-- OmniCode's synthetic generation relies on LLM-produced bad patches and review comments, which
-  may not capture the full diversity of real-world errors and feedback styles.
-- The benchmark covers 28 repositories. Agents tuned to common open-source project structures
-  may still fail on proprietary or unconventional codebases.
-- Style fixing evaluation depends on linter rule sets, which vary across organizations. A
-  "fixed" violation under one ruleset may be irrelevant or incorrect under another.
-- Test generation's discriminative criterion requires known-bad patches. In real workflows,
-  you must generate plausible incorrect implementations yourself (via mutation), which adds effort.
-- The benchmark does not cover tasks like documentation generation, dependency management, CI/CD
-  configuration, or deployment -- aspects of SE that are equally important in practice.
+- **Language coverage:** The OmniCode framework covers Python, Java, and C++. For other languages (Go, Rust, TypeScript), the four-dimensional evaluation approach still applies conceptually, but specific linter and test framework mappings must be adapted.
+- **Test generation quality ceiling:** Automatically generated tests tend toward structural coverage (line/branch) rather than semantic correctness. They may miss logic errors that require domain knowledge to test.
+- **Style fixing scope:** Linter rules vary by project. A fix that satisfies Pylint defaults may violate a project's custom `.pylintrc`. Always use the project's own linter configuration.
+- **Synthetic task representativeness:** While synthetically generated tasks avoid data leakage, they may not capture the full complexity of emergent bugs in production systems (concurrency issues, distributed system failures).
+- **Build environment complexity:** Real repositories often have non-trivial setup requirements (specific JDK versions, system libraries, environment variables). Containerized evaluation (Docker/Apptainer) is strongly recommended but adds infrastructure overhead.
 
 ## Reference
 
-**Paper:** [OmniCode: A Benchmark for Evaluating Software Engineering Agents](https://arxiv.org/abs/2602.02262v2)
-(Sonwane et al., 2026). Look for: Table 2 (pass rates by category and language), the synthetic
-generation pipeline in Section 4, the discriminative test metric in Section 3.2, and the patch
-complexity analysis in Section 5.3. Code: https://github.com/seal-research/OmniCode
+**Paper:** [OmniCode: A Benchmark for Evaluating Software Engineering Agents](https://arxiv.org/abs/2602.02262v2) — Sonwane et al., 2026. Look for: the four-category task taxonomy (Section 3), the synthetic task generation pipeline (Section 4), per-category/per-language evaluation results showing agent blind spots (Section 5), and the dual-criterion test evaluation methodology.
+
+**Code & Data:** [github.com/seal-research/OmniCode](https://github.com/seal-research/OmniCode) — Contains instance files, evaluation scripts (`omnicode.py`), SWE-Agent baselines, and the synthetic bad-patch generation pipeline.
