@@ -1,198 +1,210 @@
 ---
 name: "aqascore-evaluating-semantic-alignment"
-description: "Evaluate semantic alignment between text prompts and generated audio using probabilistic yes/no verification with audio-language models. Use when: 'evaluate text-to-audio quality', 'score audio-text alignment', 'build an audio generation evaluation pipeline', 'measure if generated audio matches the prompt', 'compare audio generation models', 'assess compositional audio understanding'."
+description: >
+  Evaluate semantic alignment between text descriptions and generated audio using
+  the AQAScore framework — probabilistic verification via audio question answering
+  instead of embedding similarity. Use this skill when:
+  - "evaluate text-to-audio alignment"
+  - "score how well generated audio matches a prompt"
+  - "build an audio evaluation pipeline"
+  - "compare audio generation models"
+  - "assess compositional audio reasoning"
+  - "implement AQAScore metric"
 ---
 
-# AQAScore: Probabilistic Semantic Verification for Text-to-Audio Evaluation
+# AQAScore: Evaluating Semantic Alignment via Audio Question Answering
 
-This skill enables Claude to design and implement evaluation systems for text-to-audio generation using the AQAScore framework. Instead of relying on embedding similarity (like CLAPScore), AQAScore converts the evaluation problem into a binary yes/no question answering task: given a generated audio clip and its source text prompt, an audio-aware large language model (ALLM) is asked "Does this audio match the description?" and the log-probability of the "Yes" token is extracted as a calibrated alignment score. This approach captures fine-grained semantic mismatches -- missing sound events, wrong attributes, incorrect temporal ordering -- that cosine-similarity metrics miss entirely.
+This skill enables Claude to design, implement, and apply the AQAScore evaluation framework for text-to-audio generation systems. AQAScore replaces traditional embedding-similarity metrics (like CLAPScore) with a probabilistic semantic verification approach: it feeds generated audio and a targeted yes/no question into an audio-aware large language model (ALLM), then computes the normalized log-probability of a "Yes" answer as a continuous alignment score. This captures fine-grained semantic mismatches — temporal ordering, attribute binding, missing sound events — that cosine-similarity metrics miss entirely.
 
-## When to Use
+## When to Use This Skill
 
-- When the user is building or improving a text-to-audio generation system and needs an evaluation metric beyond simple embedding similarity
-- When the user wants to detect compositional failures in audio generation (e.g., "a dog barks then thunder rolls" generated with the events in wrong order)
-- When the user asks to compare multiple audio generation models on semantic faithfulness
-- When the user needs to build an automated benchmark pipeline for audio-text alignment
-- When the user wants to evaluate whether specific sound events, attributes, or temporal relationships are present in generated audio
-- When the user is integrating audio quality assessment into a CI/CD or model training loop
+- When the user is building or evaluating a text-to-audio (TTA) generation system and needs a metric beyond FrechetAudioDistance or CLAPScore
+- When the user asks how to measure whether generated audio actually matches its text prompt at a semantic level
+- When the user needs to compare multiple audio generation models on compositional prompts (e.g., "a dog barking then a car horn")
+- When the user wants to implement automated evaluation for an audio ML pipeline that correlates well with human judgments
+- When the user asks about evaluating temporal ordering or attribute binding in generated audio
+- When the user is designing a benchmark or leaderboard for audio generation quality
 
 ## Key Technique
 
-**The core insight** of AQAScore is to reframe audio-text alignment evaluation from an open-ended similarity task into a constrained probabilistic verification task. Traditional metrics like CLAPScore encode audio and text into shared embedding spaces and compute cosine similarity. This works for coarse relevance but collapses under compositional reasoning -- it cannot distinguish "a woman laughs then a baby cries" from "a baby laughs then a woman cries" because the same concepts appear in both embeddings.
+**From embedding similarity to probabilistic verification.** Traditional metrics like CLAPScore project both the text prompt and the generated audio into a shared embedding space, then compute cosine similarity. This works for coarse relevance — "is there music?" — but collapses when prompts contain compositional structure. "A dog barking followed by thunder" and "thunder followed by a dog barking" produce nearly identical embeddings, yet describe different audio. AQAScore sidesteps this by reformulating evaluation as a question-answering task: given the audio and a question like *"Does this audio contain the sound events described by: a dog barking followed by thunder?"*, the model's probability of answering "Yes" becomes the alignment score.
 
-AQAScore instead feeds the audio and a derived yes/no question into an audio-aware LLM (such as Qwen2.5-Omni or Audio Flamingo 3), then extracts the exact log-probabilities of the "Yes" and "No" tokens. The score is computed as a softmax-normalized probability:
+**Log-probability extraction, not text generation.** A critical design choice is that AQAScore does *not* rely on the ALLM generating a free-text response and then parsing it. Instead, it extracts the raw logits for the "Yes" and "No" tokens at the first generated position and applies softmax normalization: `AQAScore = exp(s_yes) / (exp(s_yes) + exp(s_no))`. This yields a continuous score in [0, 1] that is deterministic, fast (single forward pass, single token), and avoids the noise and latency of sampling-based evaluation. The approach is backbone-agnostic — it works with any ALLM that exposes token logits.
 
-```
-AQAScore(audio, text) = exp(s_yes) / (exp(s_yes) + exp(s_no))
-```
-
-where `s_yes = log p("Yes" | audio, question(text))` and `s_no = log p("No" | audio, question(text))`. This yields a value between 0 and 1 that is well-calibrated and more sensitive to subtle semantic mismatches than either embedding similarity or free-form LLM prompting. Crucially, the method is **backbone-agnostic** -- it improves automatically as stronger ALLMs become available, and the choice of question template has minimal impact on results.
-
-**Why not just prompt the LLM to rate quality?** The paper tested this (direct prompting on a Likert scale) and found it performs worse than the log-probability approach. Chat-tuned models tend to have collapsed probability distributions, making their free-form ratings unreliable. Extracting raw token probabilities bypasses this issue and produces a more granular, continuous signal.
+**Scaling with model capability.** Experiments across ALLMs of varying size (Qwen2.5-Omni 3B vs. 7B, Audio Flamingo 3 variants) demonstrate that AQAScore improves as the underlying model improves. On the RELATE benchmark, Qwen2.5-Omni-7B achieved Pearson correlation of 0.544 with human ratings versus CLAPScore's best of 0.448. On compositional tasks (CompA-Order), it reached 67% accuracy versus 40.7% for CLAP-based baselines — a 65% relative improvement.
 
 ## Step-by-Step Workflow
 
-1. **Identify the evaluation inputs.** Collect pairs of (text_prompt, generated_audio_path). Each text prompt is the conditioning input used during audio generation; each audio file is the model's output.
+1. **Define the evaluation scope.** Determine what text-audio pairs need scoring: a batch of TTA model outputs, a comparison between two models, or a single generation quality check. Collect the text prompts and corresponding audio files (WAV, MP3, FLAC).
 
-2. **Select an ALLM backend.** Choose an open-weight audio-language model that exposes token log-probabilities. Qwen2.5-Omni-7B is the strongest tested option (trained on ~3000k hours of audio). Qwen2.5-Omni-3B is a lighter alternative. Audio Flamingo 3 variants also work. Avoid proprietary models (e.g., GPT-4-Audio) since they do not expose log-probabilities.
+2. **Select an audio-aware LLM backend.** Choose an ALLM that exposes token-level logits. Strong options: Qwen2.5-Omni-7B (best open-source results), Qwen2.5-Omni-3B (lighter weight), Audio Flamingo 3. The model must accept audio input and produce next-token logits — not just text output.
 
-3. **Convert each text prompt into a binary verification question.** Apply the template:
+3. **Construct the verification question.** Format each text prompt into a yes/no semantic query. The canonical template is:
+
    ```
-   "Does this audio contain the sound events described by the text: '{text_prompt}'? Please answer yes or no."
+   Does this audio match the following description: "{text_prompt}"? Answer Yes or No.
    ```
-   This template is robust across phrasings, but keep the question closed-ended and binary.
 
-4. **Run inference with the ALLM.** Pass each (audio, question) pair through the model. Configure the inference call to return log-probabilities for the next token rather than generating text. Extract the log-probability values for the "Yes" and "No" tokens specifically.
+   Research showed negligible performance differences across prompt phrasings, so the exact wording is not critical. What matters is that the question is answerable with "Yes" or "No" and references the full description.
 
-5. **Compute the AQAScore.** For each pair, apply softmax normalization over the two log-probabilities:
+4. **Run inference to extract logits.** Pass each (audio, question) pair through the ALLM. At the first generated token position, extract the logits for the "Yes" and "No" tokens (including capitalization variants: "yes", "Yes", "YES", and similarly for "No"). Sum the logits across variants if needed.
+
+5. **Compute the AQAScore.** Apply softmax normalization over the Yes/No logits:
+
    ```python
    import math
-   score = math.exp(s_yes) / (math.exp(s_yes) + math.exp(s_no))
+
+   def aqascore(logit_yes: float, logit_no: float) -> float:
+       exp_yes = math.exp(logit_yes)
+       exp_no = math.exp(logit_no)
+       return exp_yes / (exp_yes + exp_no)
    ```
-   This produces a float in [0, 1] where higher means better alignment.
 
-6. **Aggregate scores across your evaluation set.** Compute mean AQAScore per model, per prompt category, or per compositional challenge type. For pairwise model comparison, compare average scores directly.
+   The result is a float in [0, 1] where 1.0 means perfect semantic alignment.
 
-7. **For compositional evaluation, construct targeted sub-questions.** Instead of one question per prompt, decompose complex prompts into atomic checks:
-   - Temporal order: "Does the dog bark occur before the thunder?"
-   - Attribute binding: "Is it a woman laughing, not a child?"
-   - Event presence: "Does the audio contain the sound of rain?"
-   Average the sub-scores to get a compositional alignment score.
+6. **Aggregate scores across a dataset.** For batch evaluation, compute the mean AQAScore across all text-audio pairs. For model comparison, compute per-sample scores and run a paired statistical test (Wilcoxon signed-rank or paired t-test).
 
-8. **Validate against human judgments (optional but recommended).** Collect a small set of human-rated audio samples. Compute Pearson/Spearman correlation between AQAScores and human ratings to confirm the metric is well-calibrated for your domain.
+7. **Handle compositional prompts (optional).** For prompts with explicit temporal or attribute structure, you can decompose the prompt into sub-queries for more granular diagnostics:
+   - Temporal: "Does the dog barking occur before the thunder?"
+   - Attribute: "Is the piano sound soft?"
+   - Presence: "Does the audio contain a car horn?"
 
-9. **Integrate into your pipeline.** Wire the scoring function into your training loop (as a validation metric), CI pipeline (as a regression gate), or leaderboard (as a ranking criterion).
+   Score each sub-query independently, then report both individual and aggregated scores.
+
+8. **Validate against human judgments.** If building a new benchmark, collect human relevance ratings (1-5 Likert or pairwise preference) and compute Pearson/Spearman correlation with AQAScore to confirm the metric is calibrated for your domain.
+
+9. **Integrate into CI/CD or training loops.** Wrap the scoring pipeline as a callable function or CLI tool. For training-loop integration, AQAScore can serve as a reward signal — though note it requires a full ALLM forward pass per sample, so batch strategically.
 
 ## Concrete Examples
 
-**Example 1: Single-sample audio-text alignment scoring**
+**Example 1: Scoring a single text-to-audio generation**
 
-User: "I have a text-to-audio model that generated a clip from the prompt 'a cat meowing followed by glass breaking'. How do I evaluate if the audio actually matches?"
+User: "I generated audio from the prompt 'a cat meowing in a large empty room with reverb.' How do I check if it actually matches?"
 
 Approach:
-1. Load the audio file and the Qwen2.5-Omni-7B model with log-probability output enabled
-2. Construct the question: "Does this audio contain the sound events described by the text: 'a cat meowing followed by glass breaking'? Please answer yes or no."
-3. Run inference, extract log-probabilities for "Yes" and "No" tokens
-4. Compute normalized score
+1. Load the audio file and the Qwen2.5-Omni-7B model
+2. Construct the query: `Does this audio match the following description: "a cat meowing in a large empty room with reverb"? Answer Yes or No.`
+3. Run a single forward pass, extract logits for "Yes" and "No"
+4. Compute softmax-normalized score
 
+Output:
 ```python
 from transformers import AutoModelForCausalLM, AutoProcessor
 import torch
-import math
 
-model_name = "Qwen/Qwen2.5-Omni-7B"
-processor = AutoProcessor.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+model_id = "Qwen/Qwen2.5-Omni-7B"
+processor = AutoProcessor.from_pretrained(model_id)
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16, device_map="auto")
 
-text_prompt = "a cat meowing followed by glass breaking"
-question = f"Does this audio contain the sound events described by the text: '{text_prompt}'? Please answer yes or no."
+audio_path = "generated_cat_reverb.wav"
+question = 'Does this audio match the following description: "a cat meowing in a large empty room with reverb"? Answer Yes or No.'
 
-# Load audio and prepare inputs (model-specific)
-inputs = processor(audio=audio_array, text=question, return_tensors="pt").to(model.device)
+# Process inputs (model-specific — adapt to your ALLM's API)
+inputs = processor(audio=audio_path, text=question, return_tensors="pt").to(model.device)
 
 with torch.no_grad():
     outputs = model(**inputs)
-    logits = outputs.logits[:, -1, :]  # logits for next token
+    logits = outputs.logits[0, -1, :]  # logits at the generation position
 
-# Get token IDs for "Yes" and "No"
+# Get token IDs for Yes/No
 yes_id = processor.tokenizer.encode("Yes", add_special_tokens=False)[0]
 no_id = processor.tokenizer.encode("No", add_special_tokens=False)[0]
 
-s_yes = logits[0, yes_id].item()
-s_no = logits[0, no_id].item()
+s_yes = logits[yes_id].item()
+s_no = logits[no_id].item()
 
-aqascore = math.exp(s_yes) / (math.exp(s_yes) + math.exp(s_no))
-print(f"AQAScore: {aqascore:.4f}")  # e.g., 0.8723
+import math
+score = math.exp(s_yes) / (math.exp(s_yes) + math.exp(s_no))
+print(f"AQAScore: {score:.4f}")
+# Output: AQAScore: 0.8723
 ```
 
-Output: A score like `0.8723` meaning 87% confidence the audio matches the description.
+**Example 2: Comparing two TTA models on a benchmark**
 
-**Example 2: Comparing two audio generation models on a benchmark**
-
-User: "I want to compare AudioLDM2 and MusicGen on 200 prompts. Which produces more semantically faithful audio?"
+User: "I have outputs from ModelA and ModelB on 500 prompts. Which model produces audio that better matches the text?"
 
 Approach:
-1. Generate audio from both models for all 200 prompts
-2. Score every (prompt, audio) pair with AQAScore
-3. Compare distributions
+1. Score all 500 pairs for each model using the AQAScore pipeline
+2. Compute mean scores and per-sample differences
+3. Run a statistical significance test
 
+Output:
 ```python
 import numpy as np
+from scipy.stats import wilcoxon
 
-def compute_aqascores(audio_paths, prompts, model, processor):
-    scores = []
-    for audio_path, prompt in zip(audio_paths, prompts):
-        audio = load_audio(audio_path)
-        question = f"Does this audio contain the sound events described by the text: '{prompt}'? Please answer yes or no."
-        s_yes, s_no = extract_log_probs(model, processor, audio, question)
-        score = math.exp(s_yes) / (math.exp(s_yes) + math.exp(s_no))
-        scores.append(score)
-    return np.array(scores)
+scores_a = np.array([compute_aqascore(audio_a, prompt) for audio_a, prompt in zip(model_a_outputs, prompts)])
+scores_b = np.array([compute_aqascore(audio_b, prompt) for audio_b, prompt in zip(model_b_outputs, prompts)])
 
-scores_ldm2 = compute_aqascores(ldm2_audios, prompts, allm, processor)
-scores_musicgen = compute_aqascores(musicgen_audios, prompts, allm, processor)
+print(f"ModelA mean AQAScore: {scores_a.mean():.4f} (+/- {scores_a.std():.4f})")
+print(f"ModelB mean AQAScore: {scores_b.mean():.4f} (+/- {scores_b.std():.4f})")
 
-print(f"AudioLDM2  mean AQAScore: {scores_ldm2.mean():.4f}")   # e.g., 0.6821
-print(f"MusicGen   mean AQAScore: {scores_musicgen.mean():.4f}")  # e.g., 0.7134
-print(f"MusicGen wins on {(scores_musicgen > scores_ldm2).sum()}/200 prompts")
+stat, p_value = wilcoxon(scores_a, scores_b)
+print(f"Wilcoxon p-value: {p_value:.6f}")
+# ModelA mean AQAScore: 0.7234 (+/- 0.1821)
+# ModelB mean AQAScore: 0.8102 (+/- 0.1547)
+# Wilcoxon p-value: 0.000031 → ModelB is significantly better
 ```
 
-Output: Per-model mean scores and head-to-head win counts, giving a clear ranking.
+**Example 3: Diagnosing compositional failures**
 
-**Example 3: Compositional reasoning evaluation**
-
-User: "My model struggles with temporal ordering. How do I specifically test if it generates events in the right sequence?"
+User: "My model generates audio for 'a piano playing softly then drums coming in loudly' but it sounds wrong. Can AQAScore tell me what's off?"
 
 Approach:
-1. Create paired prompts with swapped event order (inspired by CompA-Order benchmark)
-2. Generate audio for both orderings
-3. Score each audio against both prompts -- a good model should score high only on the matching order
+1. Decompose the prompt into sub-queries targeting each semantic component
+2. Score each independently to isolate the failure mode
 
+Output:
 ```python
-prompt_a = "a dog barks and then thunder rolls"
-prompt_b = "thunder rolls and then a dog barks"
+sub_queries = [
+    ("Does this audio contain piano?", "presence_piano"),
+    ("Does this audio contain drums?", "presence_drums"),
+    ("Is the piano playing softly?", "attribute_piano_soft"),
+    ("Are the drums loud?", "attribute_drums_loud"),
+    ("Does the piano start before the drums?", "order_piano_first"),
+]
 
-# Generate audio conditioned on prompt_a
-audio_a = generate_audio(prompt_a)
+for query, label in sub_queries:
+    score = compute_aqascore(audio_file, query)
+    status = "PASS" if score > 0.6 else "FAIL"
+    print(f"[{status}] {label}: {score:.3f}")
 
-# Score audio_a against BOTH prompts
-score_match = aqascore(audio_a, prompt_a)      # should be HIGH
-score_mismatch = aqascore(audio_a, prompt_b)   # should be LOW
-
-temporal_sensitivity = score_match - score_mismatch
-print(f"Match score:    {score_match:.4f}")      # e.g., 0.81
-print(f"Mismatch score: {score_mismatch:.4f}")   # e.g., 0.43
-print(f"Temporal gap:   {temporal_sensitivity:.4f}")  # e.g., 0.38
-# A large gap means the model respects temporal ordering.
-# A small gap means the model ignores event order.
+# [PASS] presence_piano:       0.921
+# [PASS] presence_drums:        0.887
+# [FAIL] attribute_piano_soft:  0.412  ← piano too loud
+# [PASS] attribute_drums_loud:  0.734
+# [FAIL] order_piano_first:     0.298  ← drums come in first
 ```
+
+Diagnosis: The model generates both instruments but fails on the "softly" attribute and temporal ordering.
 
 ## Best Practices
 
-- **Do** use models that expose raw token log-probabilities. The entire technique depends on accessing `s_yes` and `s_no` directly, not on parsing generated text.
-- **Do** keep the question template simple and closed-ended. The paper found phrasing variations have minimal effect, so prefer clarity over cleverness.
-- **Do** decompose complex prompts into atomic sub-questions when diagnosing specific failure modes (temporal order, attribute binding, event presence).
-- **Do** batch inference across your evaluation set and report both mean and per-category breakdowns to surface systematic weaknesses.
-- **Avoid** using chat-tuned model variants if they collapse probability distributions. Base or lightly-tuned models produce more calibrated log-probabilities. Test by checking that scores distribute broadly across [0, 1] rather than clustering near 0.5.
-- **Avoid** using this method with proprietary API-only models (GPT-4o, Gemini) that do not return token-level log-probabilities. The technique fundamentally requires probability access.
+- **Do** use log-probability extraction rather than parsing generated text. Text generation introduces sampling noise and is slower. Logit extraction is deterministic and single-pass.
+- **Do** normalize over only "Yes" and "No" tokens. Including other tokens in the softmax denominator dilutes the signal and hurts correlation with human judgments.
+- **Do** use the strongest available ALLM. AQAScore scales with model capability — a 7B model meaningfully outperforms a 3B model on the same prompts.
+- **Do** include token capitalization variants ("Yes", "yes", "YES") when extracting logits, and sum their probabilities before normalization.
+- **Avoid** relying on AQAScore as the *sole* metric. It measures semantic alignment but not audio quality (artifacts, distortion, naturalness). Pair it with FrechetAudioDistance or human MOS for a complete picture.
+- **Avoid** using proprietary API-only models (GPT-4o-audio, Gemini) for AQAScore, since they typically do not expose token logits. You would fall back to prompting-based evaluation, which has lower correlation with human judgments.
 
 ## Error Handling
 
-- **Model does not expose log-probabilities:** Some inference frameworks suppress logit output by default. Ensure you set `output_logits=True` or equivalent. If using vLLM or TGI, configure the `logprobs` parameter in the request.
-- **"Yes"/"No" tokenization varies across models:** Different tokenizers may encode "Yes" as one or multiple tokens. Always verify the token ID mapping. Some models use "yes" (lowercase) -- check both casings and use whichever has higher total probability mass.
-- **Audio loading issues:** ALLMs expect specific sample rates (commonly 16kHz). Resample audio before inference. Mismatched sample rates produce garbage scores silently.
-- **Score distribution is degenerate:** If all scores cluster near 0.5 or near 1.0, the ALLM may be poorly calibrated for your audio domain. Try a different backbone model or verify the audio preprocessing pipeline.
-- **Out-of-memory on long audio:** Truncate or chunk audio to the model's maximum context length (often 30s for audio LLMs). Score each chunk and average, or use only the most information-dense segment.
+| Problem | Cause | Solution |
+|---|---|---|
+| Score is always ~0.5 | The ALLM doesn't understand audio content | Verify the model actually processes audio input (not just text). Test with an obvious match first. |
+| Score is 0.0 or 1.0 for everything | Logit extraction targets wrong token positions | Confirm you're reading logits at the correct generation position (first token after the prompt). |
+| "Yes"/"No" token IDs not found | Tokenizer encodes them differently | Inspect `tokenizer.encode("Yes")` — some tokenizers prepend space tokens. Search for all variants. |
+| OOM on large batches | ALLM memory requirements | Process in smaller batches. Use float16/bfloat16. The 3B variant requires ~7GB VRAM; 7B requires ~15GB. |
+| Low correlation with human ratings on music | Music descriptions are more subjective | AQAScore works best on sound-event descriptions. For music, supplement with MusicCaps-style evaluation. |
 
 ## Limitations
 
-- **Requires open-weight ALLMs with logit access.** This rules out most commercial audio APIs. You need GPU infrastructure to run models like Qwen2.5-Omni-7B.
-- **Quality is bounded by the ALLM's audio understanding.** If the backbone model cannot distinguish certain sounds or temporal patterns, AQAScore inherits those blind spots. The metric improves as ALLMs improve, but it cannot exceed its backbone.
-- **Music and speech have different challenges than sound events.** The benchmarks in the paper focus heavily on environmental sounds and sound events. Performance on music generation quality or speech naturalness may differ.
-- **Not a replacement for perceptual quality metrics.** AQAScore measures semantic alignment (does the audio match the text?), not audio fidelity (does it sound realistic?). Use it alongside metrics like FAD or FID for audio quality.
-- **Computational cost scales linearly with evaluation set size.** Each sample requires a full ALLM forward pass. For large-scale evaluation (10k+ samples), budget GPU time accordingly or use the smaller 3B model variant.
+- **Requires an ALLM with logit access.** Cloud APIs that only return text (no logprobs) cannot implement true AQAScore. You'd need to fall back to prompting-based scoring, which is noisier.
+- **Computational cost.** Each score requires a full forward pass of a 3-7B parameter model. For large-scale evaluation (100K+ samples), this is orders of magnitude slower than CLAPScore's lightweight embedding comparison.
+- **Audio quality is out of scope.** AQAScore measures "does the audio match the description?" not "does the audio sound good?" A perfectly matching but heavily distorted audio can still score high.
+- **Compositional decomposition is manual.** The paper uses holistic single-question scoring by default. Decomposing prompts into sub-queries for fine-grained diagnostics requires manual or LLM-assisted prompt engineering — there is no automatic decomposition built into the method.
+- **Performance ceiling tied to ALLM capability.** If the underlying model cannot perceive certain audio events (e.g., subtle pitch changes, specific instrument timbres), AQAScore inherits that blindness.
 
 ## Reference
 
-- **Paper:** [AQAScore: Evaluating Semantic Alignment in Text-to-Audio Generation via Audio Question Answering](https://arxiv.org/abs/2601.14728v1) (Kuan, Chang, Lee, 2026)
-- **Key takeaway:** Section 4 defines the core formula and question template. Section 5 contains benchmark results showing AQAScore outperforms CLAPScore on human-correlation tasks. Section 5.4 demonstrates robustness to prompt template variation. Table 2 has the critical model comparison numbers.
+**Paper:** [AQAScore: Evaluating Semantic Alignment in Text-to-Audio Generation via Audio Question Answering](https://arxiv.org/abs/2601.14728v1) — Kuan, Chang, Lee (2026). Look for: the softmax formulation over Yes/No logits (Section 3), benchmark results tables comparing against CLAPScore (Section 5), and compositional evaluation on CompA (Section 5.3).

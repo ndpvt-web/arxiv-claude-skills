@@ -1,226 +1,211 @@
 ---
 name: "creditaudit-2textnd-dimension-evaluation"
-description: "Evaluate and select LLMs using 2D credit audit scoring (mean ability + stability risk). Computes performance mean (mu) and scenario-induced fluctuation (sigma) across system prompt variants, then assigns credit grades AAA-BBB via cross-model quantiles. Triggers: 'which model should I deploy', 'compare LLM stability', 'credit audit models', 'evaluate model robustness to prompt variation', 'model selection for agentic pipeline', 'rank models by reliability'"
+description: "Evaluate and select LLMs using CreditAudit's 2D framework: mean ability plus stability risk (fluctuation) across system prompt variations. Assigns credit grades (AAA–BBB) to models based on performance volatility. Use when: 'compare models for deployment', 'which LLM is most stable', 'evaluate model robustness to prompt changes', 'credit grade these models', 'model selection for agentic pipeline', 'rank models by reliability'."
 ---
 
-CreditAudit enables Claude to perform deployment-oriented LLM evaluation that goes beyond single-score leaderboard comparisons. Instead of ranking models solely by accuracy, this skill applies a 2D framework: **mean ability** (average accuracy across prompt scenarios) and **scenario-induced fluctuation** (standard deviation across those scenarios), then maps fluctuation into interpretable credit grades (AAA through BBB). This directly addresses the real-world problem where models with near-identical benchmark scores behave very differently when system prompts, output formats, or interaction modes change during deployment.
+CreditAudit enables Claude to evaluate and compare language models not just by average benchmark scores, but by a second critical dimension: **stability under routine system prompt variation**. Based on the paper "CreditAudit: 2nd Dimension for LLM Evaluation and Selection" (arXiv:2602.02515v2), this skill implements a deployment-oriented credit audit framework that tests models across semantically aligned prompt templates, computes mean ability (mu) and scenario-induced fluctuation (sigma), and maps volatility into interpretable credit grades from AAA (most stable) to BBB (most volatile). This directly addresses the real-world problem where leaderboard-similar models behave very differently when system prompts, output protocols, or interaction modes shift during production use.
 
 ## When to Use
 
-- When the user asks which LLM to deploy for a production application, especially agentic or multi-step pipelines
-- When comparing two or more models that score similarly on benchmarks but need differentiation for reliability
-- When the user wants to evaluate model robustness to system prompt variations (format instructions, tone directives, output constraints)
-- When designing a model evaluation harness that accounts for stability, not just peak performance
-- When the user needs to justify model selection decisions with a structured risk framework (e.g., for compliance or engineering review)
-- When building CI/CD pipelines that test LLM behavior across prompt template variants before deployment
+- When the user asks to compare multiple LLMs for a production deployment decision and needs more than just accuracy scores
+- When evaluating model robustness for agentic or multi-step pipelines where small prompt shifts can cascade into failures
+- When the user wants to understand which model is most stable across different system prompt formulations
+- When building a model selection matrix for tiered deployment (e.g., safety-critical vs. cost-optimized tiers)
+- When the user says "which model should I deploy" or "compare these models" and wants a principled framework
+- When assessing whether a model's high benchmark score is reliable or fragile under routine prompt iteration
+- When the user needs to justify a model choice to stakeholders with a credit-grade-style risk rating
 
 ## Key Technique
 
-Standard LLM evaluation reports a single accuracy number per benchmark. CreditAudit adds a second dimension: **how much does that accuracy fluctuate when the system prompt changes in routine, non-adversarial ways?** The insight is that two models scoring 65% on MMLU may behave very differently in production -- one might hold steady at 63-67% across prompt variants while the other swings from 58% to 72%. The volatile model is a deployment liability, especially in agentic workflows where a single format violation or refusal can cascade into pipeline failure.
+CreditAudit treats model evaluation as a **2D problem**: the X-axis is mean ability (mu) — average performance across prompt scenarios — and the Y-axis is fluctuation (sigma) — standard deviation of performance across those same scenarios. Two models with identical mean scores can land in entirely different risk categories if one is stable (sigma=0.5) while the other swings wildly (sigma=3.0). This matters because in agentic pipelines, a model that occasionally fails badly under minor prompt rewording will cause compounding downstream failures.
 
-The framework constructs a family of **semantically aligned, non-adversarial system prompt templates** -- representing normal deployment variations like "output only the option letter," "be concise," "follow strict format," "verify before answering." Each model is evaluated on every template across fixed benchmark subsets. From the resulting score matrix, two statistics are computed per model: **mu** (mean accuracy across all templates) and **sigma** (sample standard deviation across templates). Sigma captures scenario-induced fluctuation -- how sensitive the model is to routine prompt changes.
+The framework constructs a **family of semantically aligned, non-adversarial system prompt templates** (typically 8–10 variants) that represent routine protocol variations practitioners actually encounter: "output only the option letter," "be concise," "think step by step," "be cautious," format-constrained variants, etc. These are not adversarial jailbreaks — they are the mundane prompt rewrites that happen during normal iteration. Each model is evaluated on the same question set under every template, producing a model x template x benchmark score cube.
 
-Credit grades are then assigned by ranking all evaluated models by sigma and cutting at cross-model quantiles: **AAA** (sigma <= 25th percentile, most stable), **AA** (25th-50th), **A** (50th-75th), **BBB** (above 75th, most volatile). A neutrality diagnostic checks that templates do not introduce systematic difficulty drift by verifying that cross-model mean scores remain approximately flat across templates. The 2D plane (mu vs. sigma) creates four deployment quadrants: Q1 (high score, low sigma) is the safe default; Q4 (high score, high sigma) is strong but fragile; Q2 (low score, low sigma) is a predictable baseline; Q3 (low score, high sigma) should be avoided.
+Fluctuation sigma is then mapped to **credit grades** using cross-model quantile thresholds: AAA (sigma <= q0.25, most stable), AA (q0.25 < sigma <= q0.50), A (q0.50 < sigma <= q0.75), and BBB (sigma > q0.75, most volatile). A scenario neutrality diagnostic confirms that templates don't introduce systematic difficulty bias — the observed fluctuation reflects genuine model-specific sensitivity. Selection then follows regime-specific rules: for agentic/high-failure-cost settings, prioritize low sigma first; for single-shot controlled deployments, score can weigh more heavily.
 
 ## Step-by-Step Workflow
 
-1. **Define the model set.** List all candidate models to evaluate. CreditAudit uses cross-model quantiles, so include at least 4-6 models to produce meaningful grade boundaries. Include both frontrunners and baselines.
+1. **Define the evaluation task set.** Select or sample a fixed set of questions from one or more benchmarks relevant to the deployment (e.g., domain-specific QA, coding tasks, reasoning problems). Use a fixed random seed for reproducibility. Aim for 100–500 questions per benchmark.
 
-2. **Design 5-10 semantically aligned system prompt templates.** Each template should represent a realistic deployment variation -- not adversarial jailbreaks, but normal protocol changes. Examples: "Answer with only the letter of the correct option," "Think step by step, then give your final answer on a new line," "Be concise and direct," "Output your answer in JSON format with a 'choice' field," "Verify your reasoning before committing to an answer." Ensure templates are benchmark-agnostic or create aligned variants per benchmark.
+2. **Construct 8–10 semantically aligned system prompt templates.** Each template should express a different but realistic protocol intent: bare-minimum instruction, concise output, verbose reasoning, structured JSON output, cautious hedging, step-by-step chain-of-thought, role-play framing, format-constrained (e.g., "answer with only A/B/C/D"), etc. Crucially, the same template index must express the same intent across all benchmarks.
 
-3. **Select evaluation benchmarks and fix subsets.** Choose 2-4 benchmarks covering target capabilities (e.g., reasoning, knowledge, truthfulness). Sample a fixed subset of items per benchmark (200-500 items) and lock it. All models see the exact same items to ensure horizontal comparability. Record the seed used for sampling.
+3. **Run each model against every (template, question) pair.** For M models, T templates, and N questions, this produces M x T x N raw responses. Extract the answer from each response and compute accuracy per (model, template, benchmark) cell.
 
-4. **Run the evaluation matrix.** For each (model, template, benchmark, item) tuple, generate the model's response with the template as the system prompt. Parse the response to extract the model's answer using a deterministic parser `g()`. Score correctness as a binary indicator against ground truth.
+4. **Compute per-model aggregate scores.** For each model m and template t, compute the equal-weight average score across benchmarks: S(m,t). Then compute mean ability: `mu_m = (1/T) * sum(S(m,t) for t in templates)` and fluctuation: `sigma_m = sqrt((1/(T-1)) * sum((S(m,t) - mu_m)^2 for t in templates))`.
 
-5. **Compute benchmark-level and overall scores.** For each model `m` and template `t`: compute per-benchmark accuracy `S_m,t,b = mean(correct predictions)`, then compute overall score `S_m,t = mean(S_m,t,b across benchmarks)` using equal weighting.
+5. **Run the scenario neutrality diagnostic.** For each template t, compute the cross-model average: `S_bar_t = (1/M) * sum(S(m,t) for m in models)`. Verify the trend across templates is near-flat. If one template is dramatically harder/easier for ALL models, it's introducing difficulty drift rather than measuring model sensitivity — consider removing or rebalancing it.
 
-6. **Compute mu and sigma per model.** Mean ability: `mu_m = mean(S_m,t across all T templates)`. Fluctuation: `sigma_m = sample_std(S_m,t across all T templates)`. Also compute per-benchmark mu and sigma for diagnostic breakdowns.
+6. **Assign credit grades using cross-model quantiles.** Compute q0.25, q0.50, q0.75 of sigma across all evaluated models. Map each model: AAA if sigma <= q0.25, AA if sigma <= q0.50, A if sigma <= q0.75, BBB otherwise.
 
-7. **Run the neutrality diagnostic.** For each template `t`, compute `S_bar_t = mean(S_m,t across all models)`. Plot or inspect these values. If `S_bar_t` varies substantially across templates, some templates are systematically harder -- revise or remove those templates and re-run. The signal should come from model-specific sensitivity, not template difficulty.
+7. **Plot the 2D evaluation map.** Place models on a (mu, sigma) plane. Identify four quadrants: Q1 (high score, low sigma) = safe default; Q2 (lower score, low sigma) = predictable baseline; Q3 (lower score, high sigma) = avoid; Q4 (high score, high sigma) = scenario-fragile, use with caution.
 
-8. **Assign credit grades via cross-model quantiles.** Compute q25, q50, q75 of sigma values across all models. Grade each model: AAA if `sigma_m <= q25`, AA if `q25 < sigma_m <= q50`, A if `q50 < sigma_m <= q75`, BBB if `sigma_m > q75`.
+8. **Apply regime-specific selection rules.** For agentic/multi-step pipelines: filter to AAA/AA grades first, then rank by mu within that tier. For single-shot controlled deployments: rank by mu but flag Q4 models with a stability warning. For cost-sensitive tiers: Q2 models offer predictable behavior at lower capability.
 
-9. **Plot the 2D evaluation and quadrant map.** Create a scatter plot with mu on the x-axis and sigma on the y-axis. Draw median lines to define quadrants. Label each point with model name and credit grade. Q1 (high-mu, low-sigma) is the recommended deployment zone.
+9. **Generate the CreditAudit report.** Produce a structured summary: model rankings table with mu, sigma, grade, and quadrant; per-benchmark breakdowns of mu and sigma; the scenario neutrality check results; and regime-specific deployment recommendations.
 
-10. **Make regime-specific selection recommendations.** For agentic or multi-step pipelines: prioritize low sigma first, then select for mu within acceptable grade tiers (AAA/AA preferred). For single-shot controlled environments: mu can weigh more heavily, but Q4 models still require caution. Report the grade alongside mu to give stakeholders a risk-aware selection language.
+10. **Iterate templates if needed.** If sigma values cluster too tightly (all models grade AAA), templates may be too similar — add more diverse protocol variations. If all models grade BBB, templates may be too aggressive — verify they're non-adversarial.
 
 ## Concrete Examples
 
-**Example 1: Selecting a model for an agentic coding assistant**
+**Example 1: Comparing models for an agentic coding pipeline**
 
-User: "I'm building a multi-step coding agent that uses tool calls. I've narrowed it down to three models that score similarly on HumanEval. Which should I deploy?"
+User: "I'm choosing between GPT-4o, Claude Sonnet, and Gemini Pro for a multi-step code generation pipeline. Which is most reliable?"
 
 Approach:
-1. Design 6 system prompt templates covering realistic agent variations:
-   - "You are a coding assistant. Output function code only, no explanation."
-   - "You are a senior developer. Think through the problem, then write clean code."
-   - "Respond with code inside ```python``` blocks. Include brief comments."
-   - "Output a JSON object with fields: 'reasoning', 'code', 'tests'."
-   - "Be concise. Write the function and nothing else."
-   - "First verify the requirements, then implement step by step."
-2. Run all three models across all 6 templates on a fixed 300-item coding benchmark subset.
-3. Compute mu and sigma for each model.
+1. Define task set: 200 coding questions from HumanEval+ and MBPP
+2. Construct 8 system prompt templates:
+   - Temp00: "You are a helpful coding assistant."
+   - Temp01: "Output only the function body, no explanation."
+   - Temp02: "Think step by step, then write the code."
+   - Temp03: "You are a senior software engineer. Write production-quality code."
+   - Temp04: "Be concise. Return only working code."
+   - Temp05: "Write the solution in a markdown code block with the language specified."
+   - Temp06: "First analyze the problem, then implement. Include type hints."
+   - Temp07: "You are cautious and thorough. Handle edge cases."
+3. Run all 3 models x 8 templates x 200 questions
+4. Compute mu and sigma per model
 
 Output:
 ```
-Model Evaluation Report (CreditAudit)
-======================================
-Benchmark: HumanEval (300-item fixed subset, 6 templates)
+CreditAudit Report — Agentic Coding Pipeline Selection
+═══════════════════════════════════════════════════════
 
-Model           | mu (%) | sigma (%) | Grade | Quadrant
-----------------|--------|-----------|-------|----------
-Model-A         | 72.3   | 1.1       | AAA   | Q1 (Safe default)
-Model-B         | 73.8   | 3.4       | BBB   | Q4 (Strong but fragile)
-Model-C         | 68.5   | 1.5       | AA    | Q2 (Predictable baseline)
+Model           | mu (%)  | sigma | Grade | Quadrant
+----------------|---------|-------|-------|---------
+Claude Sonnet   |  82.3   |  1.1  |  AAA  |   Q1
+GPT-4o          |  83.1   |  2.8  |   A   |   Q4
+Gemini Pro      |  79.5   |  1.4  |  AA   |   Q2
 
-Neutrality check: S_bar_t range = [70.1, 72.0] -- PASS (no template drift)
+Quantile thresholds: q25=1.2  q50=1.6  q75=2.4
 
-Recommendation: For agentic pipelines, deploy Model-A (AAA).
-Model-B scores 1.5pp higher on average but has 3x the fluctuation.
-In a 10-step agent chain, Model-B's instability compounds --
-a single format violation breaks downstream parsing.
-Model-A's stability reduces integration cost and monitoring overhead.
+Scenario Neutrality: PASS (cross-model template means range: 79.1–82.4%)
+
+Regime Recommendation (Agentic/Multi-Step):
+  → Deploy Claude Sonnet (AAA grade, Q1). Despite GPT-4o's +0.8% mean
+    advantage, its sigma of 2.8 means prompt rewording during iteration
+    risks disproportionate failures in downstream pipeline steps.
+  → Gemini Pro is a viable fallback (AA, predictable baseline).
+  → GPT-4o requires prompt-locking if deployed — avoid routine prompt
+    iteration without re-testing.
 ```
 
-**Example 2: Building a CreditAudit evaluation harness in Python**
+**Example 2: Single-shot QA deployment with stability audit**
 
-User: "Help me write a script that runs CreditAudit on my models."
-
-Approach:
-1. Structure the evaluation as a nested loop over models, templates, and benchmark items.
-2. Compute per-model statistics and grades.
-
-Output:
-```python
-import numpy as np
-from typing import Dict, List
-
-def creditaudit(
-    models: List[str],
-    templates: List[str],
-    benchmark_items: Dict[str, List[dict]],  # {bench_name: [{question, answer}]}
-    run_model_fn,  # (model, template, question) -> response
-    parse_fn,      # (response) -> extracted_answer
-) -> Dict[str, dict]:
-    """Run CreditAudit evaluation and return per-model results."""
-    results = {}
-    all_sigmas = []
-
-    for model in models:
-        overall_scores = []  # one S_m,t per template
-        bench_details = {}
-
-        for t_idx, template in enumerate(templates):
-            bench_scores = []
-            for bench_name, items in benchmark_items.items():
-                correct = 0
-                for item in items:
-                    response = run_model_fn(model, template, item["question"])
-                    predicted = parse_fn(response)
-                    if predicted == item["answer"]:
-                        correct += 1
-                s_mtb = correct / len(items)
-                bench_scores.append(s_mtb)
-                bench_details.setdefault(bench_name, []).append(s_mtb)
-
-            s_mt = np.mean(bench_scores)  # overall score for this template
-            overall_scores.append(s_mt)
-
-        mu = np.mean(overall_scores)
-        sigma = np.std(overall_scores, ddof=1)  # sample std
-        all_sigmas.append(sigma)
-        results[model] = {"mu": mu, "sigma": sigma, "scores": overall_scores, "benchmarks": bench_details}
-
-    # Assign grades via cross-model quantiles
-    q25, q50, q75 = np.quantile(all_sigmas, [0.25, 0.50, 0.75])
-    for model in models:
-        s = results[model]["sigma"]
-        if s <= q25:
-            results[model]["grade"] = "AAA"
-        elif s <= q50:
-            results[model]["grade"] = "AA"
-        elif s <= q75:
-            results[model]["grade"] = "A"
-        else:
-            results[model]["grade"] = "BBB"
-
-    # Neutrality diagnostic
-    n_templates = len(templates)
-    s_bar = []
-    for t_idx in range(n_templates):
-        t_scores = [results[m]["scores"][t_idx] for m in models]
-        s_bar.append(np.mean(t_scores))
-    drift_range = max(s_bar) - min(s_bar)
-    neutrality_pass = drift_range < 0.05  # 5pp threshold
-
-    return {"models": results, "quantiles": {"q25": q25, "q50": q50, "q75": q75},
-            "neutrality": {"s_bar": s_bar, "drift_range": drift_range, "pass": neutrality_pass}}
-```
-
-**Example 3: Interpreting a CreditAudit report for stakeholders**
-
-User: "Our team ran CreditAudit and Model X got AA with mu=71% while Model Y got BBB with mu=74%. Leadership wants to go with Model Y because of the higher score. How do I push back?"
+User: "Rank these 5 models for a customer-facing Q&A bot. Accuracy matters most but I need to know which ones are flaky."
 
 Approach:
-1. Explain the 2D framework and what BBB means in operational terms.
-2. Quantify the deployment cost difference.
+1. Define task set: 300 questions from TruthfulQA + domain-specific QA
+2. Construct 10 templates varying tone (formal, casual), format (brief, detailed), and instruction style (direct, role-play)
+3. Run all 5 models x 10 templates x 300 questions
+4. Compute mu, sigma, grades
 
 Output:
 ```
-CreditAudit Risk Assessment: Model X (AA) vs Model Y (BBB)
-============================================================
+CreditAudit Report — Customer QA Bot Selection
+═══════════════════════════════════════════════
 
-Model Y scores 3pp higher on average but sits in Quadrant Q4
-(strong but scenario-fragile). Here's what that means operationally:
+Model      | mu (%) | sigma | Grade | Quadrant
+-----------|--------|-------|-------|---------
+Model A    |  88.2  |  0.9  |  AAA  |   Q1
+Model B    |  87.9  |  1.1  |  AAA  |   Q1
+Model C    |  89.1  |  3.2  |  BBB  |   Q4  ⚠
+Model D    |  84.3  |  1.5  |  AA   |   Q2
+Model E    |  83.0  |  2.7  |   A   |   Q3
 
-1. STABILITY GAP: Model Y's BBB grade means its sigma is in the top
-   25% of all evaluated models. Under routine prompt changes (format
-   tweaks, tone adjustments, output schema updates), Model Y's accuracy
-   swings significantly more than Model X.
+Regime Recommendation (Single-Shot, Customer-Facing):
+  → Model A or B (both AAA, Q1) are safe defaults.
+  → Model C scores highest BUT grade BBB — its 89.1% mean hides
+    template-specific drops to 83.4%. If your system prompt changes
+    during A/B testing or iteration, expect inconsistent behavior.
+  → Stability warning for Model C: per-benchmark sigma on TruthfulQA
+    is 4.1 — truthfulness degrades significantly under casual-tone
+    templates.
+```
 
-2. AGENTIC RISK: In multi-step pipelines, instability compounds.
-   If Model Y has a 5% chance of format violation per step, a 10-step
-   chain sees ~40% pipeline failure rate. Model X's lower sigma means
-   tighter per-step reliability.
+**Example 3: Designing a CreditAudit template family from scratch**
 
-3. OPERATIONAL COST: BBB models require heavier prompt hardening,
-   more regression testing on prompt changes, larger scenario coverage,
-   more conservative rollouts, and more human fallback capacity.
+User: "Help me create a set of system prompt templates for evaluating models on my legal document analysis task."
 
-4. RECOMMENDATION: Deploy Model X (AA) for production pipelines.
-   Reserve Model Y for controlled, single-shot use cases where its
-   higher peak score matters and prompt variation is locked down.
+Approach:
+1. Identify routine protocol variations in legal NLP deployments
+2. Construct semantically aligned templates
 
-The 3pp accuracy difference is dwarfed by the integration and
-maintenance cost of Model Y's instability in production.
+Output:
+```
+CreditAudit Template Family — Legal Document Analysis
+══════════════════════════════════════════════════════
+
+Temp00 (Baseline):
+  "You are a legal document analysis assistant. Answer the question
+   based on the provided document."
+
+Temp01 (Format-constrained):
+  "Answer with only the relevant legal citation and a one-sentence
+   explanation. No preamble."
+
+Temp02 (Chain-of-thought):
+  "Analyze the legal document step by step. Identify relevant clauses,
+   then provide your answer with reasoning."
+
+Temp03 (Cautious):
+  "You are a careful legal analyst. If the answer is ambiguous, say so.
+   Err on the side of caution."
+
+Temp04 (Structured output):
+  "Return your answer as JSON with keys: 'answer', 'confidence',
+   'relevant_clauses', 'reasoning'."
+
+Temp05 (Role-play):
+  "You are a senior associate at a law firm reviewing this document
+   for a partner. Be thorough and precise."
+
+Temp06 (Concise):
+  "Be brief. Provide only the direct answer to the question."
+
+Temp07 (Adversarial-adjacent but non-adversarial):
+  "The user may phrase questions ambiguously. Interpret charitably
+   and answer the most likely intended question."
+
+Temp08 (Multi-part):
+  "First state whether the question can be answered from the document.
+   If yes, provide the answer. If partially, state what's missing."
+
+Alignment check: Each template varies protocol intent (format, tone,
+reasoning depth, output structure) while keeping the core task identical.
+All templates are non-adversarial — they represent variations a legal
+tech team would plausibly iterate through during development.
 ```
 
 ## Best Practices
 
-- **Do:** Use at least 5 semantically diverse system prompt templates. Fewer than 5 produces unreliable sigma estimates. Templates should cover realistic variations: format constraints, verbosity levels, reasoning instructions, and output schemas.
-- **Do:** Fix the evaluation subset and record the sampling seed. CreditAudit isolates prompt-induced variation from data sampling noise only when every model sees the exact same items.
-- **Do:** Always run the neutrality diagnostic before interpreting grades. If cross-model mean scores shift substantially across templates (>5pp range), some templates are acting as difficulty manipulators rather than protocol variants.
-- **Do:** Report both mu and grade together, never grade alone. A BBB model with mu=85% is a very different proposition from a BBB model with mu=55%.
-- **Avoid:** Using adversarial or jailbreak prompts as templates. CreditAudit measures sensitivity to *routine* deployment variations, not adversarial robustness. Adversarial prompts produce artificially inflated sigma.
-- **Avoid:** Grading with fewer than 4 models. Cross-model quantiles need a reasonable pool to produce meaningful grade boundaries. With 2-3 models the quartile cuts are unstable.
+- **Do:** Keep templates non-adversarial and semantically aligned. They should represent prompt variations that actually occur during normal development iteration — not jailbreaks or intentionally confusing instructions.
+- **Do:** Use the same fixed question set across all templates and models. Template-induced variance is only meaningful when the task is held constant.
+- **Do:** Always run the scenario neutrality diagnostic before assigning grades. If one template is universally harder, it measures task difficulty, not model stability.
+- **Do:** Report both mu AND sigma together. A model's credit grade without its mean ability is incomplete — AAA at 60% accuracy is not better than BBB at 95% for all use cases.
+- **Avoid:** Using fewer than 6 templates. With too few data points, sigma estimates are unreliable and grades become noisy.
+- **Avoid:** Mixing adversarial and non-adversarial templates in the same audit. Adversarial robustness is a different evaluation axis — CreditAudit specifically measures sensitivity to routine, benign prompt variation.
+- **Avoid:** Setting absolute sigma thresholds (e.g., "sigma > 2 is bad"). The quantile-based grading adapts to the model cohort — what matters is relative stability within the candidate set.
+- **Avoid:** Ignoring per-benchmark sigma breakdowns. A model may be AAA overall but BBB on truthfulness specifically — regime-specific decisions require granular data.
 
 ## Error Handling
 
-- **Template difficulty drift detected (neutrality check fails):** Remove or rewrite templates where `S_bar_t` deviates significantly from the others. A template that is systematically harder (not just harder for some models) contaminates sigma with irrelevant difficulty signal. Re-run the audit after revision.
-- **Sigma values are all near zero:** Templates are too similar to each other. Increase semantic diversity -- add templates that change output format, reasoning style, or verbosity requirements.
-- **Parser failures inflate/deflate scores:** If the deterministic parser `g()` cannot extract an answer from a response, decide on a consistent policy (count as incorrect, or exclude). Document the policy and apply it uniformly. Parser failures that cluster on specific templates may indicate those templates induce poorly formatted output -- this is itself a valid instability signal.
-- **Too few benchmark items produce noisy S_m,t,b:** Use at least 200 items per benchmark. Smaller subsets introduce sampling variance that gets conflated with prompt-induced fluctuation.
+- **All models cluster at the same grade:** Your templates lack sufficient diversity. Add templates with different output format constraints, reasoning depth requirements, or role framings. Verify that templates actually produce different model behaviors by inspecting raw response patterns.
+- **Scenario neutrality check fails:** One or more templates are systematically harder or easier for all models. Inspect the cross-model template means. Remove or replace the outlier template, or apply a difficulty-centering adjustment: subtract the template mean from each score before computing sigma.
+- **Sigma is dominated by one benchmark:** Decompose into per-benchmark mu and sigma. Report benchmark-specific grades alongside the aggregate. The deployment decision should weight the benchmark most relevant to the target use case.
+- **Sample size too small for reliable sigma:** With fewer than 50 questions per benchmark, accuracy estimates per template are noisy, inflating sigma. Increase the evaluation set or use confidence intervals around sigma estimates.
+- **Model API non-determinism inflates sigma:** Run each (model, template, question) pair multiple times with temperature=0. If variance persists, separate API-induced noise from template-induced fluctuation by computing within-template variance first.
 
 ## Limitations
 
-- CreditAudit measures sensitivity to system prompt variation only. It does not capture instability from temperature sampling, few-shot example changes, or user message phrasing variation.
-- The credit grades are relative (quantile-based), not absolute. Adding or removing models from the evaluation pool changes grade boundaries. A model graded AAA in a pool of 5 might become AA in a pool of 20.
-- The framework assumes accuracy as the scoring function. For generative tasks without clear ground truth (summarization, creative writing), you need a proxy scorer, which introduces its own variance.
-- Template design is manual and subjective. Different template families may produce different sigma rankings. The paper recommends semantic alignment but does not provide an automated template generation method.
-- Equal weighting across benchmarks in the overall score may not match deployment priorities. Weight benchmarks according to your use case if one capability matters more than others.
+- CreditAudit measures sensitivity to **non-adversarial** prompt variation only. It does not assess adversarial robustness, jailbreak resistance, or safety under attack.
+- The credit grade is **relative to the evaluated cohort**. Adding or removing models from the comparison shifts quantile thresholds and can change grades. Always report the cohort composition.
+- Template design requires domain expertise. Poorly chosen templates (too similar, or inadvertently adversarial) invalidate the stability signal.
+- The framework assumes equal weighting across benchmarks. If one benchmark matters more for your deployment, apply explicit weights to the score aggregation before computing mu and sigma.
+- CreditAudit does not measure cost, latency, or context window — it is purely an accuracy-stability framework. Combine with operational metrics for full deployment decisions.
+- With only 4 grade levels (AAA–BBB), the framework provides coarse discrimination. For large model cohorts (20+), consider finer quantile bins or reporting raw sigma alongside grades.
 
 ## Reference
 
-**Paper:** [CreditAudit: 2nd Dimension for LLM Evaluation and Selection](https://arxiv.org/abs/2602.02515v2) (Song et al., 2026). Focus on Section 3 (framework formulation), Table 1 (grade assignments with observed quantiles q25=1.30, q50=1.57, q75=2.04), Section 5.4 (quadrant-based deployment guidance), and Appendix A.1 (neutrality diagnostic).
+**Paper:** "CreditAudit: 2nd Dimension for LLM Evaluation and Selection" — Song et al., 2026. arXiv:2602.02515v2. https://arxiv.org/abs/2602.02515v2
 
-**Code:** [github.com/LLwork8888/CreditAudit](https://github.com/LLwork8888/CreditAudit) -- reference implementation with evaluation runner, Gradio frontend, and reporting tools.
+Look for: The model x template x benchmark score cube methodology, the quantile-based grade mapping table, the scenario neutrality diagnostic, and the four-quadrant (mu, sigma) selection framework with regime-specific deployment guidance.
