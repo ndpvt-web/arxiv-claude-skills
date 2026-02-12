@@ -1,170 +1,232 @@
 ---
 name: "emotion-llamav2-mmeverse-framework-benchmark"
-description: "Build multimodal emotion understanding systems using Emotion-LLaMAv2's architecture patterns: end-to-end multiview encoding, conv-attention pre-fusion, perception-to-cognition curriculum training, and multi-agent annotation pipelines. Use when asked to: 'build an emotion recognition system from video', 'design a multimodal fusion pipeline for affective computing', 'create a multi-agent data annotation workflow', 'implement curriculum instruction tuning for LLMs', 'set up emotion benchmarks across multiple datasets', 'fuse audio, video, and text for sentiment analysis'."
+description: "Build multimodal emotion understanding systems using the Emotion-LLaMAv2 architecture and MMEVerse benchmark methodology. Applies multiview encoding, Conv-Attention pre-fusion, and perception-to-cognition curriculum training for emotion recognition and reasoning from video, audio, and text. Triggers: 'build emotion recognition pipeline', 'multimodal emotion analysis', 'emotion reasoning from video', 'create emotion dataset with multi-agent annotation', 'benchmark emotion understanding models', 'affective computing system design'."
 ---
 
 # Multimodal Emotion Understanding with Emotion-LLaMAv2 and MMEVerse
 
-This skill enables Claude to design and implement multimodal emotion understanding systems following the architecture of Emotion-LLaMAv2 (arXiv:2601.16449). The core technique replaces brittle explicit face-detection pipelines with end-to-end multiview encoders, fuses audio/visual/text features through a parallel conv-attention module before the LLM backbone, and trains in a two-stage perception-to-cognition curriculum that first learns categorical emotion labels then graduates to free-form emotional reasoning. The skill also covers MMEVerse's multi-agent annotation pipeline (Qwen2-Audio + Qwen2.5-VL + GPT-4o) for producing high-quality emotion descriptions at scale.
+This skill enables Claude to architect and implement multimodal emotion understanding systems based on the Emotion-LLaMAv2 framework. The core technique combines a dual-view visual encoder (global frame + temporal sequence), a Conv-Attention pre-fusion module that merges modalities before the LLM backbone, and a two-stage curriculum that moves from categorical perception to open-ended cognitive reasoning. When building emotion-aware applications, Claude applies these patterns to design data pipelines, model architectures, training loops, and evaluation harnesses grounded in the MMEVerse benchmark methodology.
 
 ## When to Use
 
-- When the user asks to build a video-based emotion recognition or sentiment analysis system
-- When designing a multimodal fusion architecture that combines audio, visual frames, and text/transcripts
-- When creating a multi-agent pipeline to annotate emotional content in video datasets
-- When implementing curriculum-style instruction tuning (simple classification first, then reasoning)
-- When unifying multiple emotion datasets (IEMOCAP, MELD, DFEW, etc.) into a single training format
-- When the user needs to fuse local features (convolution) with global context (attention) before an LLM
-- When building benchmarks that test both emotion classification accuracy and reasoning quality
+- When the user asks to build or design a system that recognizes emotions from video, audio, or multimodal inputs.
+- When creating a dataset annotation pipeline that uses multiple LLM agents (e.g., vision LLM + audio LLM + GPT-4o consolidator) to produce descriptive emotion labels.
+- When implementing a multimodal fusion module that needs to capture both local temporal patterns and global cross-modal attention.
+- When designing a curriculum learning strategy that first grounds a model on categorical labels, then expands to free-form reasoning.
+- When benchmarking an emotion model across heterogeneous datasets (IEMOCAP, MELD, DFEW, MAFW, etc.) in a unified evaluation format.
+- When the user wants to add emotion reasoning capabilities to an existing vision-language model.
 
 ## Key Technique
 
-**End-to-End Multiview Encoding.** Traditional affective computing pipelines rely on explicit face detectors (e.g., OpenFace) to crop facial regions before analysis. This is fragile -- detectors fail on occlusions, extreme poses, and low resolution. Emotion-LLaMAv2 eliminates this by processing full frames through EVA-ViT-G at 448x448 resolution for spatial tokens, uniformly sampling 16 frames and spatially pooling them into 2x2 embeddings per frame for temporal tokens, and encoding audio via Whisper-large-v3 normalized to 64 tokens. The model learns to implicitly attend to emotion-relevant regions (faces, hands, body posture) without hard-coded detection.
+**Multiview Encoding Without Explicit Face Detection.** Traditional affective computing pipelines rely on an external face detector to crop and align faces before feature extraction. Emotion-LLaMAv2 eliminates this brittle dependency. A global visual encoder (EVA-ViT-G) processes a single representative middle frame at 448x448, retaining all patch tokens for fine-grained spatial detail. A temporal visual encoder samples 16 uniformly-spaced frames from the clip, processes each through EVA, then spatially pools to 2x2 embeddings per frame, yielding a compact 16x4 = 64-token temporal sequence. Audio passes through Whisper-large-v3, normalized to a fixed 64-token sequence via adaptive average pooling. This tri-stream design captures facial expressions, body language, scene context, and prosodic cues without any external detector.
 
-**Conv-Attention Pre-Fusion.** Rather than concatenating modality tokens and leaving all cross-modal reasoning to the LLM, a dedicated pre-fusion module operates externally. Two parallel branches process the features: (1) a convolutional branch with residual Conv1d blocks and Switch activation captures local temporal patterns (prosody shifts, micro-expressions), and (2) an attention branch computes cross-modal relevance weights across audio, global-visual, and temporal-visual features. Their outputs are summed element-wise. This design gives the LLM pre-aligned multimodal tokens that already encode cross-modal emotion cues, reducing the burden on the language model.
+**Conv-Attention Pre-Fusion.** Rather than feeding raw modality tokens directly into the LLM (which wastes backbone capacity on low-level alignment), a dedicated fusion module operates externally. Audio, global-visual, and temporal-visual features are projected to a shared dimension via MLPs, then processed in parallel: an attention branch computes cross-modal attention between a concatenated feature vector and a stacked feature tensor, capturing global inter-modal relationships; a convolutional branch applies Conv1d with residual blocks and Switch activation to capture local fine-grained temporal patterns. The two branches are summed element-wise, producing a compact fused representation that the LLM receives as a single token group alongside the per-modality tokens.
 
-**Perception-to-Cognition Curriculum.** Training proceeds in two stages. Stage 1 (perception) trains on categorical emotion labels only -- the model learns to map multimodal inputs to discrete emotion categories (happy, sad, angry, etc.) using recognition-specific task identifiers in the prompt. Stage 2 (cognition) adds free-form reasoning supervision -- the model must now both predict the category and articulate *why*, grounding explanations in specific multimodal evidence (facial expressions, vocal tone, body language, spoken words). This curriculum prevents the model from generating plausible-sounding but ungrounded reasoning.
+**Perception-to-Cognition Curriculum.** Stage 1 trains only on categorical emotion labels (e.g., "happy", "angry") using recognition-specific instruction templates, establishing a robust mapping from multimodal features to the discrete label space (71M trainable parameters via LoRA rank=64 on LLaMA2-7B). Stage 2 introduces the rich descriptive annotations from MMEVerse, requiring the model to both predict the label and articulate coherent reasoning about why the emotion is present, citing visual, auditory, and contextual evidence. This two-phase approach prevents the model from hallucinating reasoning before it can reliably classify.
 
 ## Step-by-Step Workflow
 
-1. **Define the multimodal input schema.** Specify modalities (video frames, audio waveform, transcript text). For video: extract a representative middle frame at 448x448 for spatial encoding, and uniformly sample 16 frames for temporal encoding. For audio: resample to 16kHz mono. For text: use ASR transcript or subtitle.
+### 1. Define the modality streams and input specifications
 
-2. **Set up the multiview encoder pipeline.** Use a vision transformer (e.g., EVA-ViT-G or CLIP-ViT-L) to encode the spatial frame into patch tokens (excluding CLS). Process the 16 temporal frames through the same or a video-specific encoder (VideoMAE/VideoMAEv2) and spatially pool each frame to 2x2 embeddings (4 tokens x 16 frames = 64 temporal tokens). Encode audio through Whisper-large-v3, applying adaptive average pooling to normalize to a fixed 64-token sequence.
+Establish the three input channels with their preprocessing:
+- **Global visual:** Extract the middle frame of each video clip, resize to 448x448, normalize with ImageNet stats.
+- **Temporal visual:** Sample 16 uniformly-spaced frames, process identically, then spatially pool each to 2x2 patch embeddings.
+- **Audio:** Extract audio at 16kHz mono, pass through a frozen Whisper-large-v3 encoder, adaptive-average-pool or zero-pad to exactly 64 tokens.
 
-3. **Implement the Conv-Attention pre-fusion module.** Project all three modality embeddings to a shared channel dimension via MLPs. Create two parallel branches:
-   - *Conv branch:* Initial Conv1d followed by N residual blocks, each applying `F_out = F_in + Switch(Conv1d(F_in))`. Use the Switch activation: `Switch(x) = x * sigmoid(x)`.
-   - *Attention branch:* Concatenate the three modality features along the sequence dimension into `F_d`, compute attention weights via an MLP, unsqueeze, and multiply element-wise with stacked modality features `F_s`.
-   - Sum both branch outputs to produce fused feature tokens `u_f`.
+### 2. Build the multiview encoder
 
-4. **Construct the multimodal prompt template.** Format input as:
-   ```
-   [Vid] <FusionFeature> <ImageFeature> <VideoFeature> <AudioFeature> [Vid]
-   The person in the video says: "<transcript>"
-   <TaskIdentifier> <Instruction>
-   ```
-   Use separate task identifiers for recognition (`[REC]`) vs. reasoning (`[REASON]`) tasks so the LLM conditions its output format on the task type.
+Instantiate two frozen EVA-ViT-G encoders (or share weights with different input routing). The global encoder outputs all patch tokens from the single frame. The temporal encoder outputs pooled tokens per frame. Add a modality-specific linear adapter (MLP) per stream projecting to 4096-dimensional LLM embedding space.
 
-5. **Implement Stage 1: Perception training.** Fine-tune the full pipeline on categorical emotion labels only. Use the MMEVerse-style unified format where each sample maps to one of the target emotion categories. Randomly sample from a pool of recognition instruction prompts (e.g., "What emotion is the person expressing?", "Classify the emotional state shown in this video.") for diversity.
+### 3. Implement the Conv-Attention pre-fusion module
 
-6. **Implement Stage 2: Cognition training.** Starting from Stage 1 weights, add reasoning supervision. Each training sample now includes both the emotion label and a multi-sentence description linking multimodal evidence to the affective interpretation. Train on instructions that require both prediction and explanation (e.g., "Identify the emotion and explain what visual, vocal, and textual cues support your answer.").
+```python
+# Pseudocode for the fusion module
+class ConvAttentionFusion(nn.Module):
+    def __init__(self, dim=4096):
+        self.proj_audio = MLP(dim, dim)
+        self.proj_global = MLP(dim, dim)
+        self.proj_temporal = MLP(dim, dim)
+        # Attention branch
+        self.attn_q = nn.Linear(dim * 3, dim)
+        self.attn_k = nn.Linear(dim, dim)
+        # Conv branch
+        self.conv1d = nn.Conv1d(dim, dim, kernel_size=3, padding=1)
+        self.res_blocks = nn.Sequential(*[ResConvBlock(dim) for _ in range(3)])
+        self.switch_act = SwitchActivation()
 
-7. **Build the multi-agent annotation pipeline (for dataset creation).** To generate high-quality emotion reasoning labels at scale:
-   - Run OpenFace on video to extract Facial Action Unit intensities; identify the peak-emotion frame.
-   - Send the peak frame to a vision-language model (Qwen2.5-VL-72B or equivalent) to extract scene context, objects, interactions, and body language descriptions.
-   - Send the audio to an audio-language model (Qwen2-Audio or equivalent) to extract prosodic cues: pitch variation, speaking rate, intensity, pauses, hesitations.
-   - Feed all three descriptions plus the transcript into GPT-4o (or equivalent) to synthesize a coherent multimodal emotion description.
+    def forward(self, audio_feat, global_feat, temporal_feat):
+        a = self.proj_audio(audio_feat)       # (B, dim)
+        g = self.proj_global(global_feat)      # (B, dim)
+        t = self.proj_temporal(temporal_feat)   # (B, dim)
+        # F_d: concatenated; F_s: stacked
+        F_d = torch.cat([a, g, t], dim=-1)     # (B, 3*dim)
+        F_s = torch.stack([a, g, t], dim=1)    # (B, 3, dim)
+        # Attention branch
+        q = self.attn_q(F_d).unsqueeze(1)      # (B, 1, dim)
+        k = self.attn_k(F_s)                   # (B, 3, dim)
+        attn_out = torch.bmm(q, k.transpose(1,2))  # (B, 1, 3)
+        attn_out = (F.softmax(attn_out, dim=-1) @ F_s).squeeze(1)
+        # Conv branch
+        conv_in = F_s.transpose(1, 2)          # (B, dim, 3)
+        conv_out = self.switch_act(self.res_blocks(self.conv1d(conv_in)))
+        conv_out = conv_out.mean(dim=-1)        # (B, dim)
+        return attn_out + conv_out
+```
 
-8. **Unify multiple datasets into a single instruction format.** Map each source dataset's label taxonomy to a shared emotion vocabulary. Standardize video clip boundaries, audio extraction, and transcript alignment. Store each sample as: `{video_path, audio_path, transcript, emotion_label, reasoning_description, source_dataset, split}`.
+### 4. Design the prompt template with explicit token ordering
 
-9. **Evaluate on both recognition and reasoning metrics.** For recognition: use weighted accuracy (WAcc) across emotion categories. For reasoning: use clue-overlap and label-overlap scores that measure whether generated explanations cite correct multimodal evidence and arrive at the right emotion label.
+Structure model inputs as: `[FusionFeature] [ImageFeature] [VideoFeature] [AudioFeature] [Text] [TaskIdentifier]`. The task identifier distinguishes recognition-only vs. reasoning tasks, enabling curriculum control.
 
-10. **Run ablation checks.** Validate that: (a) removing the Conv-Attention pre-fusion degrades performance, (b) skipping Stage 1 and training directly on reasoning hurts both recognition and reasoning, (c) increasing dataset scale and annotation quality (MMEVerse vs. smaller sets) yields measurable gains.
+### 5. Prepare the dataset in MMEVerse unified instruction format
+
+For each clip, produce a JSON record:
+```json
+{
+  "video_path": "MELD/train/dia0_utt0.mp4",
+  "audio_path": "MELD/train/dia0_utt0.wav",
+  "instruction": "Analyze the emotions expressed in this video clip.",
+  "label": "sadness",
+  "reasoning": "The speaker's voice trembles with a falling pitch...",
+  "source_dataset": "MELD",
+  "task_type": "recognition"
+}
+```
+
+### 6. Implement the multi-agent annotation pipeline for reasoning labels
+
+When generating descriptive annotations for a new or existing emotion dataset:
+1. Run OpenFace on all frames to extract Facial Action Unit intensities; select the peak-AU frame as anchor.
+2. Feed the anchor frame to a vision LLM (e.g., Qwen2.5-VL-72B) to extract scene layout, objects, body posture, and interaction descriptions.
+3. Feed the audio to an audio LLM (e.g., Qwen2-Audio) to extract prosodic cues: pitch variation, speaking rate, pauses, intensity.
+4. Send all three evidence streams plus the ground-truth label to GPT-4o with a consolidation prompt that synthesizes a coherent multimodal emotion description, resolving any cross-modal conflicts.
+
+### 7. Train Stage 1: Perception (categorical alignment)
+
+- Freeze visual and audio encoders.
+- Train fusion module + modal adapters from scratch; apply LoRA (rank=64, alpha=16) to LLaMA2's W_q and W_v matrices.
+- Use only categorical labels; randomly sample recognition instruction templates.
+- AdamW, weight_decay=0.05, cosine LR with peak 1e-4, warmup 1000 steps, ~50k steps on 4xA100.
+
+### 8. Train Stage 2: Cognition (joint recognition + reasoning)
+
+- Continue from Stage 1 checkpoint.
+- Introduce descriptive reasoning annotations from Step 6.
+- Instructions now require both label prediction and articulated reasoning.
+- Train for an additional ~50k steps with the same optimizer settings.
+
+### 9. Evaluate on MMEVerse-Bench
+
+Use task-specific metrics:
+- **Hit rate** for MER2023, MELD-emotion, IEMOCAP.
+- **Weighted Average F-score** for sentiment tasks (MOSI, MOSEI, CH-SIMS).
+- **mAP** for multi-label tasks (MAFW-multi, BOLD).
+- **GPT-4o scoring** (0-10) for open reasoning: clue overlap, label overlap, process completeness.
+
+### 10. Ablate and iterate
+
+Run ablations on: (a) fusion module (remove conv branch, remove attention branch, replace with simple concatenation), (b) curriculum stages (skip Stage 1, joint training from scratch), (c) number of temporal frames (8, 16, 32), (d) annotation quality (original labels vs. multi-agent re-annotations).
 
 ## Concrete Examples
 
-**Example 1: Building a Video Emotion Classifier**
+**Example 1: Building an emotion recognition API from video clips**
 
-User: "I have a dataset of customer service video calls. I want to build a system that detects the customer's emotional state from the video, audio, and transcript."
+User: "I want to build a REST API that takes a short video clip and returns the detected emotion with an explanation of why."
 
 Approach:
-1. Extract representative frames and 16-frame temporal sequences from each video clip.
-2. Transcribe audio using Whisper; also encode raw audio into 64-token feature sequences.
-3. Encode spatial frame via CLIP-ViT-L, temporal frames via VideoMAE, audio via Whisper encoder.
-4. Implement the Conv-Attention pre-fusion: project all features to 768-dim, run conv branch (3 residual blocks) and attention branch in parallel, sum outputs.
-5. Feed fused tokens into an LLM backbone (LLaMA-2-7B) with the prompt template: `[Vid] <fused> <spatial> <temporal> <audio> [Vid] The customer says: "I've been waiting for an hour..." [REC] What is the customer's emotional state?`
-6. Train Stage 1 on categorical labels (frustrated, satisfied, neutral, angry, confused) for 3 epochs.
-7. Train Stage 2 on labels + reasoning descriptions for 2 more epochs.
+1. Set up a FastAPI server with an `/analyze` endpoint accepting video uploads.
+2. Implement the tri-stream preprocessor: extract middle frame (global), sample 16 frames (temporal), extract audio at 16kHz.
+3. Load frozen EVA-ViT-G for visual encoding and frozen Whisper-large-v3 for audio encoding.
+4. Instantiate the ConvAttentionFusion module and a LoRA-adapted LLaMA2-7B backbone.
+5. Load the Stage 2 checkpoint weights (perception + cognition trained).
+6. On each request, run the three encoders, fuse features, construct the prompt template with a reasoning task identifier, and generate.
 
 Output:
 ```json
 {
-  "emotion": "frustrated",
+  "emotion": "frustration",
   "confidence": 0.87,
-  "reasoning": "The customer's voice shows rising pitch and increased speaking rate, indicating agitation. Their facial expression displays furrowed brows and a tightened jaw. The verbal content ('I've been waiting for an hour') explicitly references a prolonged negative experience. These visual, vocal, and lexical cues collectively indicate frustration."
+  "reasoning": "The speaker's brow is furrowed with AU4 (brow lowerer) activated. Their vocal pitch rises sharply mid-sentence before trailing off, indicating suppressed anger. The crossed arms and turned-away posture reinforce defensive frustration. The office setting with scattered papers suggests work-related stress."
 }
 ```
 
-**Example 2: Multi-Agent Emotion Annotation Pipeline**
+**Example 2: Creating a multi-agent annotation pipeline for a custom emotion dataset**
 
-User: "I have 50,000 unlabeled video clips and need rich emotion annotations with reasoning. How do I build an automated annotation pipeline?"
-
-Approach:
-1. Run OpenFace on each clip to compute per-frame AU intensity; select the frame with maximum aggregate AU activation as the peak-emotion frame.
-2. Send the peak frame to Qwen2.5-VL-72B with the prompt: "Describe the person's facial expression, body posture, gestures, and the surrounding scene context relevant to their emotional state."
-3. Extract audio and send to Qwen2-Audio with the prompt: "Analyze the speaker's vocal characteristics: pitch, tempo, volume, pauses, breathiness, and any paralinguistic cues indicating emotion."
-4. Feed all three outputs (visual description, audio description, transcript) into GPT-4o with: "Given the following multimodal evidence, synthesize a coherent 2-3 sentence description of the person's emotional state, citing specific cues from each modality. Then provide a single emotion category label."
-5. Store the output in the unified format.
-
-Output per clip:
-```json
-{
-  "video_id": "clip_04291",
-  "emotion_label": "sadness",
-  "visual_description": "The subject's eyes are downcast with slightly raised inner brows (AU1+AU4). Shoulders are slumped forward. The room is dimly lit with no other people present.",
-  "audio_description": "Speech is slow (approx 2.1 syllables/sec) with frequent pauses of 1-2 seconds. Pitch is low and monotone with occasional vocal tremor.",
-  "transcript": "I just... I don't know what to do anymore.",
-  "synthesized_reasoning": "The combination of downcast gaze with inner brow raise signals distress, while the slumped posture suggests low energy or defeat. The slow, monotone speech with frequent pauses reflects emotional weight, and the verbal content expresses helplessness. These converging cues across modalities indicate sadness."
-}
-```
-
-**Example 3: Curriculum Instruction Tuning Setup**
-
-User: "I already have an LLM fine-tuned on vision-language tasks. How do I adapt it for emotion understanding using the curriculum approach?"
+User: "I have 5,000 therapy session clips with basic emotion labels. I want richer descriptive annotations for training."
 
 Approach:
-1. Prepare two instruction datasets from the same source clips:
-   - **Stage 1 dataset**: Each sample has multimodal tokens + a recognition instruction + category label only.
-   - **Stage 2 dataset**: Same samples but now include both the category label and a multi-sentence reasoning description.
-2. Create an instruction pool for each stage:
-   - Stage 1 pool: `["What emotion is shown?", "Classify the emotional state.", "Identify the person's feelings.", ...]`
-   - Stage 2 pool: `["What emotion is shown and why?", "Identify the emotion and explain the multimodal evidence.", ...]`
-3. Fine-tune Stage 1: Freeze the vision/audio encoders for the first epoch, then unfreeze all. Train for 3 epochs with learning rate 2e-5.
-4. Fine-tune Stage 2: Starting from Stage 1 checkpoint, train for 2 epochs at learning rate 1e-5. Supervise both the predicted label and the reasoning text.
-5. Validate: Check that Stage 2 model maintains Stage 1 recognition accuracy (should not degrade) while now producing grounded reasoning.
+1. Extract all frames and run OpenFace to compute AU intensities per frame. For each clip, select the frame with maximum summed AU activation.
+2. Batch the peak frames through Qwen2.5-VL-72B with the prompt: "Describe the person's facial expression, body language, scene context, and any visible emotional cues in this frame."
+3. Batch the audio tracks through Qwen2-Audio with: "Analyze the speaker's vocal characteristics: pitch, rate, volume, pauses, breathiness, and emotional tone."
+4. For each clip, send the visual description, audio description, original label, and transcript to GPT-4o with a consolidation prompt:
 
-Output training config:
-```yaml
-curriculum:
-  stage_1:
-    task: "recognition_only"
-    epochs: 3
-    lr: 2e-5
-    data: "mmeverse_train_recognition.jsonl"
-    loss: "cross_entropy_on_label_tokens"
-  stage_2:
-    task: "recognition_and_reasoning"
-    epochs: 2
-    lr: 1e-5
-    data: "mmeverse_train_full.jsonl"
-    loss: "autoregressive_on_full_response"
-    init_from: "stage_1_checkpoint"
 ```
+Given these multimodal observations about a video clip labeled "{label}":
+- Visual: {visual_description}
+- Audio: {audio_description}
+- Transcript: "{transcript}"
+
+Write a coherent 3-4 sentence description explaining why this clip
+expresses {label}, citing specific visual, auditory, and verbal evidence.
+Resolve any contradictions between modalities.
+```
+
+5. Store results in the unified MMEVerse JSON format. Run inter-annotator agreement (Cohen's kappa) on a 200-clip subset with human reviewers.
+
+Output: 5,000 clips with structured annotations like:
+```
+"The therapist displays genuine concern through raised inner brows (AU1)
+and a slight forward lean. Her voice softens noticeably with slower
+pacing and deliberate pauses between phrases, conveying empathy. The
+words 'I understand how difficult this must be' align with the compassionate
+vocal tone, though a brief lip press suggests she is holding back her
+own emotional response."
+```
+
+**Example 3: Benchmarking a new emotion model against MMEVerse-Bench**
+
+User: "I've fine-tuned a VideoLLaMA variant for emotion tasks. How do I evaluate it properly?"
+
+Approach:
+1. Download the 12 MMEVerse source datasets and organize into the unified split structure (130k train / 36k test).
+2. Format all test clips into the standardized instruction template with task identifiers matching the 18 benchmarks.
+3. Run inference on all 36k test clips, collecting predicted labels and reasoning text.
+4. Compute per-benchmark metrics:
+   - Hit rate for MER2023, MELD-e, IEMOCAP, DFEW, CAER, E3.
+   - Weighted Avg F-score for MOSI, MOSEI, CH-SIMS, CH-SIMSv2.
+   - mAP for MAFW-multi, BOLD.
+   - Accuracy for MAFW-s, MELD-s, MC-EIU-intent, MC-EIU-emotion.
+5. For reasoning quality, sample 500 clips and score with GPT-4o on clue overlap (0-10), label overlap (0-10), process completeness (0-10).
+6. Report Avg-9 (MER-UniBench overlap) and Avg-18 (full MMEVerse-Bench). Compare against baselines: AffectGPT (54.4%), Emotion-LLaMA v1 (64.7%), Emotion-LLaMAv2 (66.6%).
 
 ## Best Practices
 
-- **Do** use the full-frame input instead of cropped face regions. The end-to-end approach captures body language, scene context, and gestural cues that face crops miss. The model learns to attend to faces implicitly.
-- **Do** keep the pre-fusion module lightweight relative to the LLM backbone. Its purpose is cross-modal alignment, not deep reasoning -- 3-4 residual conv blocks and a single attention layer suffice.
-- **Do** use diverse instruction prompts during training (a pool of 10-20 paraphrases per task type) to prevent the model from overfitting to specific phrasings.
-- **Do** validate annotation quality by sampling 200-500 clips and manually checking synthesized descriptions against video content before scaling to the full dataset.
-- **Avoid** skipping Stage 1 and training directly on reasoning. The perception-first curriculum is critical; without it, the model generates plausible-sounding explanations that cite the wrong cues or misidentify emotions.
-- **Avoid** relying on a single annotator model. The multi-agent pipeline works because each model contributes complementary expertise (facial AUs, scene context, vocal prosody). A single VLM misses audio cues; a single audio model misses visual ones.
+- **Do:** Keep visual and audio encoders frozen during both training stages. Only 0.92% of parameters need training (fusion module + adapters + LoRA), making this feasible on 4xA100 in ~3 hours.
+- **Do:** Always include the fusion feature tokens alongside per-modality tokens in the LLM prompt. The fusion captures cross-modal interactions the LLM backbone cannot efficiently learn on its own.
+- **Do:** Use the perception-first curriculum. Training recognition and reasoning jointly from scratch degrades classification accuracy because the model tries to generate plausible-sounding reasoning before it can reliably detect the emotion.
+- **Do:** Resolve cross-modal conflicts during annotation. When the face shows a smile but the voice trembles, the consolidation LLM must acknowledge and reason about the discrepancy (e.g., masking behavior) rather than ignoring one modality.
+- **Avoid:** Using explicit face detection as a preprocessing step. It creates a single point of failure for occluded, side-profile, or multi-person scenes. The multiview encoder with full-frame input allows the LLM to implicitly attend to emotion-relevant regions.
+- **Avoid:** Skipping spatial pooling on temporal frames. Without pooling from full patch tokens to 2x2 per frame, the temporal stream produces an unmanageably long sequence (16 frames x 257 patches = 4112 tokens) that overwhelms the context window.
 
 ## Error Handling
 
-- **Face detector failures (legacy pipelines):** If migrating from an OpenFace-dependent system, handle cases where AU extraction fails by falling back to the full-frame encoder path. Log clips where OpenFace returns no detections -- these are precisely the cases the end-to-end approach handles better.
-- **Audio-visual misalignment:** Verify that audio and video timestamps are synchronized before encoding. A drift of even 500ms can cause the model to associate vocal cues with the wrong facial expressions. Use ffprobe to check stream durations and re-mux if needed.
-- **Annotation model hallucination:** GPT-4o may hallucinate emotions not present in the video. Mitigate by including the ground-truth label (if available) as a constraint in the synthesis prompt, or by adding a verification step where a second model scores the coherence between the description and the video.
-- **Class imbalance across datasets:** Emotion datasets are notoriously imbalanced (e.g., MELD has far more "neutral" than "disgust"). Apply weighted sampling during training or use focal loss to prevent the model from defaulting to majority classes.
-- **Temporal token pooling failures:** If video frames are corrupted or mostly black, the 2x2 spatial pooling produces near-zero tokens. Add a check for low-variance temporal features and flag those clips for review.
+| Problem | Cause | Resolution |
+|---------|-------|------------|
+| Audio tokens all zeros | Clip has no audio track or is silent | Zero-pad to 64 tokens as designed; the fusion module learns to down-weight silent audio via the attention branch |
+| Peak AU frame selection fails | OpenFace cannot detect a face in any frame | Fall back to the middle frame (same as global encoder input); the system works without AU-based selection |
+| Multi-agent annotations contradict ground truth | GPT-4o consolidation overwrites the original label | Pin the ground-truth label in the consolidation prompt; instruct the LLM to explain the given label, not reassign it |
+| Stage 2 reasoning degrades recognition accuracy | Too many reasoning steps dilute classification signal | Increase the ratio of recognition-only instructions in Stage 2 (e.g., 40% recognition / 60% reasoning) |
+| OOM during temporal encoding | Too many frames sampled or resolution too high | Reduce to 8 temporal frames or lower resolution to 224x224 for temporal stream only |
 
 ## Limitations
 
-- The full pipeline requires substantial compute: EVA-ViT-G + Whisper + LLaMA-2 backbone is GPU-intensive. For inference-constrained deployments, consider distilling to smaller encoders.
-- The multi-agent annotation pipeline incurs significant API costs at scale (50k+ clips through GPT-4o). Budget accordingly or use open-weight alternatives for the synthesis step.
-- Emotion taxonomies vary across datasets (Ekman 6, VAD continuous, sentiment polarity). The unified label mapping loses granularity -- "anger" in IEMOCAP (dyadic conversation) differs from "anger" in DFEW (film clips). Interpret cross-dataset benchmarks with this caveat.
-- The approach is trained primarily on English-language datasets. Emotion expression norms vary across cultures and languages; direct application to non-English content may reduce accuracy.
-- Free-form reasoning quality depends heavily on the annotation pipeline quality. If the synthesized descriptions contain errors, Stage 2 training will learn flawed reasoning patterns.
+- The architecture is built on LLaMA2-7B. Scaling to larger backbones (13B, 70B) is untested and may require re-tuning the LoRA rank and fusion module dimensions.
+- MMEVerse covers 12 datasets but is English-dominated. Mandarin datasets (CH-SIMS) are included but other languages are not represented.
+- The multi-agent annotation pipeline depends on commercial APIs (GPT-4o), making large-scale re-annotation costly. Budget roughly $0.01-0.03 per clip for the consolidation step.
+- Real-time inference is constrained by the three-encoder forward pass plus LLM generation. Expect ~2-4 seconds per clip on a single A100, not suitable for sub-100ms latency requirements.
+- The Conv-Attention fusion module is designed for three modalities. Adding a fourth (e.g., physiological signals) requires architectural changes to the stacking and attention dimensions.
 
 ## Reference
 
-**Paper:** [Emotion-LLaMAv2 and MMEVerse: A New Framework and Benchmark for Multimodal Emotion Understanding](https://arxiv.org/abs/2601.16449v1) (Peng et al., 2026). Key sections: Section 3 for the multiview encoder and Conv-Attention pre-fusion architecture, Section 4 for the perception-to-cognition curriculum, Section 5 for MMEVerse benchmark construction and the multi-agent annotation pipeline.
+**Paper:** [Emotion-LLaMAv2 and MMEVerse: A New Framework and Benchmark for Multimodal Emotion Understanding](https://arxiv.org/abs/2601.16449v1) (Peng et al., 2026). Focus on Section 3 for the multiview encoder and Conv-Attention fusion design, Section 4 for the MMEVerse annotation pipeline, and Section 5 for the curriculum training procedure and ablation results.
+
+**Code:** [https://github.com/ooochen-30/Emotion-LLaMA-v2](https://github.com/ooochen-30/Emotion-LLaMA-v2)
