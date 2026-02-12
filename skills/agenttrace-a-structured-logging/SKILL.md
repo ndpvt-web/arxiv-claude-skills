@@ -1,0 +1,42 @@
+---
+name: "agenttrace-a-structured-logging"
+description: "Despite the growing capabilities of autonomous agents powered by large language models (LLMs), their adoption in high-stakes domains remains limited. Implements techniques from the paper 'AgentTrace: A Structured Logging Framework for Agent System Observability' for automate deployment, ci/cd, and infrastructure tasks. Use when tasks involve (devops automation), (search & retrieval), (agent framework), (security) or when the user references techniques from this research area."
+---
+
+# AgentTrace: A Structured Logging Framework for Agent System Observability
+
+**Source:** [https://arxiv.org/abs/2602.10133v1](https://arxiv.org/abs/2602.10133v1)
+**Category:** cs.SE | **Published:** 2026-02-07 | **Skill Score:** 90
+**Authors:** Adam AlSayyad, Kelvin Yuxiang Huang, Richik Pal
+
+## Core Capability
+
+Automate deployment, CI/CD, and infrastructure tasks.
+
+## Workflow
+
+1. Analyze the current infrastructure and deployment setup
+2. Design automation workflows for the target environment
+3. Generate configuration files (Docker, K8s, CI/CD pipelines)
+4. Implement monitoring and alerting
+5. Validate the automation works correctly
+
+## Security Considerations
+
+- Check for OWASP Top 10 vulnerabilities
+- Validate all user inputs at system boundaries
+- Use parameterized queries for database access
+- Follow the principle of least privilege
+
+## Agent Coordination
+
+- Decompose complex tasks into independent subtasks where possible
+- Use parallel execution for independent subtasks
+- Implement error recovery and retry logic
+- Aggregate partial results when full completion fails
+
+## Research Context
+
+> Despite the growing capabilities of autonomous agents powered by large language models (LLMs), their adoption in high-stakes domains remains limited. A key barrier is security: the inherently nondeterministic behavior of LLM agents defies static auditing approaches that have historically underpinned software assurance. Existing security methods, such as proxy-level input filtering and model glassboxing, fail to provide sufficient transparency or traceability into agent reasoning, state changes, 
+
+Refer to the [full paper](https://arxiv.org/abs/2602.10133v1) for detailed methodology.
