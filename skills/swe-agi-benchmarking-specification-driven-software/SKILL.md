@@ -1,231 +1,189 @@
 ---
 name: "swe-agi-benchmarking-specification-driven-software"
-description: "Build production-scale software strictly from formal specifications, RFCs, and standards documents using a scaffold-first, constraint-mapping workflow. Use when: 'implement this RFC', 'build a parser from this spec', 'construct a decoder from the standard', 'implement this protocol specification', 'build from this formal grammar', 'create a solver from these constraints'."
+description: "Build production-scale software systems from formal specifications, RFCs, and standards documents using specification-driven construction methodology. Triggers: 'implement this RFC', 'build a parser from the spec', 'implement this standard', 'construct from specification', 'build from RFC', 'specification-driven implementation'"
 ---
 
 # Specification-Driven Software Construction
 
-This skill enables Claude to build complete, production-scale software systems — parsers, interpreters, protocol implementations, binary decoders, SAT solvers — directly from formal specifications, RFCs, and authoritative standards. Based on the SWE-AGI benchmark methodology (Zhang et al., 2026), the core insight is that **specification fidelity, not general coding ability, determines success** in autonomous software construction. The workflow uses API scaffold design, explicit constraint mapping, and iterative specification-referenced validation to implement 1,000–10,000 lines of core logic that would otherwise take weeks of human engineering.
+This skill enables Claude to build complete, production-scale software systems — parsers, interpreters, binary decoders, protocol implementations, and algorithmic solvers — strictly from authoritative specifications, RFCs, and standards documents. Drawing from the SWE-AGI benchmark methodology, it emphasizes long-horizon architectural reasoning, explicit planning before coding, disciplined code reading, and constraint satisfaction against formal requirements. The core insight: when building from specs, comprehending existing code and specifications is harder than writing new code — so invest disproportionate effort in reading and planning.
 
 ## When to Use
 
-- When the user provides an RFC, formal specification, or standard document and asks to implement it (e.g., "implement RFC 9293 TCP state machine")
-- When building a parser or interpreter from a formal grammar (BNF, EBNF, PEG)
-- When implementing a binary format decoder from a specification (e.g., PNG, WASM, PDF)
-- When constructing a protocol handler from an authoritative standard
-- When building a constraint solver (SAT, SMT) from formal problem definitions
-- When the user wants a clean-room implementation that must not rely on existing codebases, only on the specification itself
-- When implementing any system where correctness is defined by adherence to a written standard, not by heuristic behavior
+- When the user asks to implement a protocol, format, or standard from an RFC or specification document (e.g., "implement a JSON parser per RFC 8259")
+- When building a parser, lexer, interpreter, or compiler from a formal grammar or language specification
+- When implementing a binary decoder or encoder from a file format specification (e.g., PNG, WASM, PDF)
+- When constructing an algorithmic system described by formal constraints (e.g., SAT solver, constraint solver)
+- When the user provides a standards document and asks for a conforming implementation with a predefined API surface
+- When implementing a system that must pass a comprehensive compliance test suite against a specification
+- When refactoring or extending an existing codebase to conform to a new or updated specification
 
-## Key Technique: Scaffold-First Specification Construction
+## Key Technique
 
-The SWE-AGI research reveals that autonomous agents fail not because they misunderstand specifications, but because they fail to **simultaneously satisfy multiple interdependent constraints** during code generation. Constraint violations account for ~45% of failures, followed by type mismatches (25%) and missing edge cases (20%). Pure logic errors are only 10% — agents understand *what* to build but struggle with the combinatorial pressure of *building it all at once*.
+**Specification-driven construction** differs fundamentally from typical code generation. Instead of inferring behavior from examples or writing code from vague descriptions, the agent must satisfy explicit constraints defined in authoritative documents. The SWE-AGI benchmark shows that this requires three capabilities most agents lack: (1) sustained comprehension of long, dense specification text, (2) architectural planning that maps spec requirements to code structure before writing begins, and (3) incremental validation against the spec throughout implementation rather than only at the end.
 
-The solution is a **scaffold-first, constraint-mapped, iteratively-validated** workflow. Before writing any implementation logic, define the complete type scaffold: all public types, module boundaries, function signatures, and error types derived directly from the specification. This scaffold acts as a structural contract that catches type mismatches early and decomposes the specification into independently implementable units.
+The critical finding from SWE-AGI is that **code reading — not writing — is the dominant bottleneck** as systems scale. Agents that re-read the same code sections repeatedly waste 60-75% of their token budget on comprehension rather than production. The remedy is to build a persistent mental model: read the spec once thoroughly, extract a structured requirements checklist, design the architecture against that checklist, then implement module by module with targeted re-reads only when needed. Agents that employ an explicit planning phase before coding outperform reactive approaches by 20-30%.
 
-The second critical insight from SWE-AGI is that **code reading, not writing, becomes the dominant bottleneck as codebases scale**. Agents that maintain persistent references back to the specification during error recovery outperform those that treat the spec as a one-time input by ~45%. Every validation failure must be mapped back to a specific specification clause, not debugged through generic reasoning.
+A second key insight is **constraint satisfaction over functional correctness**. Generating code that "works" is insufficient — the implementation must satisfy non-functional specification constraints including error handling semantics, edge-case behavior, encoding rules, and conformance to the exact API scaffold provided. This means every implementation decision must trace back to a specific clause in the specification.
 
 ## Step-by-Step Workflow
 
-1. **Ingest and section the specification.** Read the full RFC, standard, or formal grammar. Break it into discrete numbered sections, each covering one functional requirement or constraint. Create a specification index mapping section numbers to the features they define.
+1. **Ingest and parse the specification document.** Read the full specification (RFC, grammar, format doc) end-to-end. Extract a structured requirements list: mandatory behaviors, optional features, error conditions, edge cases, and conformance levels (MUST/SHOULD/MAY per RFC 2119 if applicable). Do not skim — missing a single MUST-level requirement causes conformance failure.
 
-2. **Extract all constraints into an explicit checklist.** Convert every "MUST", "SHALL", "REQUIRED" (and their negatives) from the specification into testable assertions. For formal grammars, enumerate every production rule. For binary formats, list every field, its offset, size, endianness, and valid value range. This checklist becomes your source of truth.
+2. **Identify the API scaffold and constraints.** If the user provides predefined interfaces, function signatures, or type definitions, catalog them exhaustively. These are non-negotiable boundaries. Map each API entry point to the specification sections it must satisfy. If no scaffold is provided, design one by identifying the natural module boundaries in the specification.
 
-3. **Design the type scaffold from the specification structure.** Define all public types, enums, structs, and function signatures *before* writing any logic. Each type should map 1:1 to a concept in the specification. Define module boundaries that mirror the specification's own organizational structure (e.g., one module per RFC section, one type per grammar non-terminal).
+3. **Decompose into implementation modules.** Break the specification into 4-8 cohesive modules (e.g., for a parser: tokenizer, AST types, parser core, error recovery, serialization). Order them by dependency — foundational types first, then core logic, then integration layers. Each module should map to specific spec sections.
 
-4. **Define error types that reference specification clauses.** Create error variants that name the specific specification section they represent (e.g., `InvalidHeaderField { section: "4.3.2", detail: String }`). This forces error handling to be specification-aware, not generic.
+4. **Design the architecture before writing code.** For each module, write a brief design note: what data structures it uses, what spec constraints it satisfies, what interfaces it exposes to other modules. Identify cross-cutting concerns (error handling strategy, encoding/decoding conventions, state management). This planning phase is where most implementation quality is determined.
 
-5. **Write test cases directly from specification examples.** Before implementing logic, generate test cases from any examples, test vectors, or sample data in the specification. For RFCs, use the provided examples verbatim. For grammars, test both valid and invalid inputs at every production boundary. Aim for at least one test per constraint from step 2.
+5. **Implement module by module, bottom-up.** Start with the lowest-dependency module (typically type definitions and utility functions). For each module: (a) re-read only the relevant spec sections, (b) implement the core logic, (c) handle all MUST-level edge cases from the spec, (d) write or run tests before moving to the next module. Do not implement the full system in one pass.
 
-6. **Implement incrementally by specification section, easiest first.** Start with the simplest, least-dependent specification sections. Implement one section at a time, running the corresponding tests after each. Do not proceed to the next section until the current one passes all its tests.
+6. **Validate each module against the specification incrementally.** After implementing each module, trace through the relevant spec clauses and verify each is satisfied. Run any available tests. Fix conformance issues immediately — do not accumulate spec debt across modules.
 
-7. **Cross-validate constraint interactions after each section.** After implementing a new section, re-run all previous tests. Specification constraints often interact (e.g., header parsing affects body decoding). When a previously passing test fails, map the failure to the specific constraint interaction and fix it before continuing.
+7. **Integrate modules and test end-to-end.** Wire modules together following the architecture plan. Run the full test suite. For any failures, trace the failure back to a specific spec clause to determine whether the issue is a misunderstanding of the spec or a code bug.
 
-8. **Re-consult the specification on every failure.** When a test fails, do not debug by reading only the implementation code. Go back to the specification, re-read the relevant section, and verify that the implementation matches clause-by-clause. The SWE-AGI finding is clear: agents that re-consult specs during error recovery achieve ~60% higher pass rates.
+8. **Audit for specification completeness.** Walk through the requirements checklist from step 1. Verify every MUST-level requirement has a corresponding implementation. Check that SHOULD-level requirements are implemented where feasible. Document any intentional omissions of MAY-level features.
 
-9. **Handle edge cases last, systematically.** After core logic passes, walk the constraint checklist from step 2 and verify edge cases: boundary values, optional fields, error conditions, and explicitly undefined behavior. Implement defensive handling for each.
+9. **Optimize code reading efficiency.** When debugging or extending, avoid re-reading entire files. Instead, maintain awareness of module boundaries and jump directly to the relevant section. Use targeted searches rather than broad exploration. This discipline prevents the token-budget waste that SWE-AGI identifies as the primary scaling bottleneck.
 
-10. **Final conformance sweep.** Run the complete test suite. For any remaining failures, trace each to its specification clause, fix, and document which clause it satisfies. The implementation is complete when every item in the constraint checklist from step 2 has a corresponding passing test.
+10. **Document spec-to-code traceability.** For complex implementations, add brief comments citing the specific spec section a code block satisfies (e.g., `// RFC 8259 Section 7: Strings`). This aids future maintenance and conformance auditing.
 
 ## Concrete Examples
 
 **Example 1: Implementing a JSON parser from RFC 8259**
 
 ```
-User: Implement a JSON parser strictly following RFC 8259.
+User: Implement a complete JSON parser in Python following RFC 8259.
+       It should handle all value types, unicode escapes, and produce
+       clear error messages for malformed input.
 
 Approach:
-1. Section the spec: structural characters (section 2), values (section 3),
-   objects (section 4), arrays (section 5), numbers (section 6),
-   strings (section 7).
+1. Read RFC 8259 fully. Extract requirements:
+   - MUST support: object, array, number, string, true, false, null
+   - MUST handle: UTF-8 encoding, \uXXXX escapes, surrogate pairs
+   - MUST reject: trailing commas, single quotes, unquoted keys
+   - Number format: no leading zeros, optional fraction/exponent
 
-2. Extract constraints:
-   - Strings MUST use UTF-8 encoding
-   - Numbers MUST NOT have leading zeros (except 0 itself)
-   - Structural whitespace is only: SP, HT, LF, CR
-   - Unicode escape: \uXXXX with surrogate pair handling
-   - Max nesting: implementation-defined but must handle reasonable depth
-   ... (enumerate all 30+ MUST/SHALL constraints)
+2. Design API scaffold:
+   - parse(text: str) -> JsonValue (top-level entry)
+   - JsonValue = dict | list | str | int | float | bool | None
+   - JsonParseError with position and descriptive message
 
-3. Design scaffold:
-   ```
-   enum JsonValue {
-     Null
-     Bool(Bool)
-     Number(Float64)
-     Str(String)
-     Array(List[JsonValue])
-     Object(Map[String, JsonValue])
-   }
+3. Module decomposition:
+   - Module A: Scanner/tokenizer (string -> token stream)
+   - Module B: String parser (handle escapes, unicode, surrogate pairs)
+   - Module C: Number parser (RFC 8259 Section 6 grammar)
+   - Module D: Recursive descent parser (tokens -> JsonValue)
+   - Module E: Error reporting with line/column tracking
 
-   enum ParseError {
-     UnexpectedChar { pos: Int, expected: String, section: String }
-     InvalidNumber { pos: Int, detail: String, section: String }
-     InvalidString { pos: Int, detail: String, section: String }
-     UnexpectedEOF { section: String }
-   }
+4. Implement bottom-up: A -> B -> C -> D -> E
+   Each module tested against spec edge cases before proceeding.
 
-   fn parse(input: String) -> Result[JsonValue, ParseError]
-   fn parse_value(input: String, pos: Int) -> Result[(JsonValue, Int), ParseError]
-   fn parse_string(input: String, pos: Int) -> Result[(String, Int), ParseError]
-   fn parse_number(input: String, pos: Int) -> Result[(Float64, Int), ParseError]
-   fn parse_array(input: String, pos: Int) -> Result[(List[JsonValue], Int), ParseError]
-   fn parse_object(input: String, pos: Int) -> Result[(Map[String, JsonValue], Int), ParseError]
-   fn skip_whitespace(input: String, pos: Int) -> Int
-   ```
-
-4. Write tests from RFC examples:
-   - `parse("null")` -> Ok(Null)
-   - `parse("[1, \"two\", true]")` -> Ok(Array(...))
-   - `parse("{\"key\": 42}")` -> Ok(Object(...))
-   - `parse("01")` -> Err(InvalidNumber, section "6")
-   - `parse("\"\\uD800\\uDC00\"")` -> Ok(Str(...)) // surrogate pair
-
-5. Implement section by section: whitespace -> null/bool ->
-   numbers -> strings -> arrays -> objects.
-
-Output: A fully conformant RFC 8259 parser with every MUST constraint
-tested and every error referencing its specification section.
+Output: A conforming parser that passes RFC 8259 compliance tests,
+        handles surrogate pairs correctly, rejects non-conforming
+        input with clear positional error messages.
 ```
 
-**Example 2: Building a WASM binary decoder from the WebAssembly spec**
+**Example 2: Building a WebAssembly binary decoder from the WASM spec**
 
 ```
-User: Build a WebAssembly binary format decoder per the WASM Core Spec section 5.
+User: Build a WASM binary module decoder that reads .wasm files and
+       extracts the module structure per the WebAssembly Core Specification.
 
 Approach:
-1. Section the spec: module structure (5.1), types (5.2), imports (5.3),
-   functions (5.4), tables (5.5), memories (5.6), globals (5.7),
-   exports (5.8), code (5.9), data (5.10), custom sections.
-
-2. Extract constraints:
-   - Magic number: 0x00 0x61 0x73 0x6D
-   - Version: 0x01 0x00 0x00 0x00
+1. Parse WASM Core Spec Binary Format section. Extract requirements:
+   - Magic number \0asm, version 1
+   - Section types: Type, Import, Function, Table, Memory, Global,
+     Export, Start, Element, Code, Data (each with specific encoding)
    - LEB128 unsigned/signed integer encoding
-   - Section IDs: 0-12, custom=0, type=1, import=2, ...
-   - Sections MUST appear in order (except custom sections)
-   - Each section: id (1 byte) + size (u32 LEB128) + contents
-   ... (enumerate 100+ constraints from spec)
+   - Validation rules for section ordering
 
-3. Design scaffold:
-   ```
-   // Types mirror spec section 2.3
-   struct Module { types, funcs, tables, mems, globals, ... }
-   enum ValType { I32, I64, F32, F64 }
-   struct FuncType { params: List[ValType], results: List[ValType] }
+2. API scaffold:
+   - decode(bytes) -> WasmModule
+   - WasmModule contains typed section lists
+   - DecodeError with byte offset
 
-   // Decoder mirrors spec section 5
-   struct Decoder { bytes: Bytes, pos: Int }
-   fn decode_module(bytes: Bytes) -> Result[Module, DecodeError]
-   fn decode_section(d: Decoder) -> Result[Section, DecodeError]
-   fn decode_leb128_u32(d: Decoder) -> Result[Int, DecodeError]
-   fn decode_leb128_s32(d: Decoder) -> Result[Int, DecodeError]
-   // ... one function per spec subsection
-   ```
+3. Module decomposition:
+   - Module A: LEB128 decoder (unsigned + signed variants)
+   - Module B: Type section parser (function signatures)
+   - Module C: Import/Export section parsers
+   - Module D: Code section parser (function bodies, locals)
+   - Module E: Module-level decoder (magic, version, section dispatch)
 
-4. Tests from spec test suite: use known .wasm binaries,
-   validate each section independently, test malformed inputs.
+4. Implement A first (foundational), then B-D (independent sections
+   can be parallelized), then E (integration).
 
-5. Implement: magic/version -> LEB128 -> type section ->
-   import section -> ... -> code section (most complex).
-
-Output: A streaming WASM decoder where each DecodeError references
-the specific spec section violated, enabling precise diagnostics.
+Output: A decoder that reads any valid .wasm binary, produces a
+        structured module representation, and rejects malformed
+        binaries with byte-offset error messages per spec.
 ```
 
-**Example 3: Implementing a SAT solver from DIMACS CNF specification**
+**Example 3: Implementing a SAT solver from formal definition**
 
 ```
-User: Build a DPLL-based SAT solver that reads DIMACS CNF format.
+User: Implement a DPLL-based SAT solver that reads DIMACS CNF format
+       and returns satisfying assignments or UNSAT.
 
 Approach:
-1. Section the spec: DIMACS CNF format (header line, clause lines,
-   comment lines), DPLL algorithm definition.
+1. Parse DIMACS CNF specification and DPLL algorithm definition:
+   - Input format: p cnf <vars> <clauses>, then clause lines
+   - DPLL: unit propagation, pure literal elimination, branching
+   - Output: SAT + assignment, or UNSAT
 
-2. Extract constraints:
-   - Header: "p cnf <variables> <clauses>"
-   - Clauses: space-separated integers, 0-terminated
-   - Negative integers = negated variables
-   - Comments: lines starting with 'c'
-   - Output: SATISFIABLE + assignment, or UNSATISFIABLE
+2. API scaffold:
+   - solve(cnf: str) -> Result (SAT with model, or UNSAT)
+   - Internal: Clause, Literal, Assignment types
 
-3. Design scaffold:
-   ```
-   struct Formula { num_vars: Int, clauses: List[Clause] }
-   type Clause = List[Literal]
-   struct Literal { var_id: Int, negated: Bool }
-   enum SatResult { Sat(Map[Int, Bool]), Unsat }
+3. Module decomposition:
+   - Module A: DIMACS parser (text -> clause list)
+   - Module B: Data structures (watched literals, assignment trail)
+   - Module C: Unit propagation engine
+   - Module D: DPLL search with backtracking
+   - Module E: Solution formatter and validator
 
-   fn parse_dimacs(input: String) -> Result[Formula, ParseError]
-   fn solve(formula: Formula) -> SatResult
-   fn unit_propagate(formula: Formula, assignment: Assignment) -> PropResult
-   fn choose_variable(formula: Formula, assignment: Assignment) -> Int
-   fn dpll(formula: Formula, assignment: Assignment) -> SatResult
-   ```
+4. Implement A -> B -> C -> D -> E. Test C extensively with
+   hand-crafted unit propagation scenarios before integration.
 
-4. Tests: standard SAT competition benchmarks, known SAT/UNSAT instances,
-   edge cases (empty clause = UNSAT, no clauses = SAT, single variable).
-
-5. Implement: DIMACS parser -> unit propagation -> pure literal
-   elimination -> DPLL backtracking -> variable selection heuristic.
-
-Output: A correct DPLL solver that parses standard DIMACS CNF,
-with every decision point traceable to the algorithm specification.
+Output: A correct DPLL solver handling the full DIMACS format,
+        with unit propagation and pure literal elimination,
+        validated against standard SAT competition benchmarks.
 ```
 
 ## Best Practices
 
 **Do:**
-- Extract every "MUST", "SHALL", "REQUIRED" into a numbered constraint checklist before writing any code. This is the single highest-leverage step — agents with explicit constraint lists show ~35% higher success rates.
-- Design the full type scaffold before any implementation. Types that mirror specification concepts catch structural errors at compile time, reducing constraint violations by ~50%.
-- Re-read the specification clause when a test fails, rather than only inspecting the code. Specification re-consultation during debugging is the strongest predictor of success.
-- Implement and test one specification section at a time, in dependency order. Never implement two interacting sections simultaneously.
+- Read the entire specification before writing any code. Partial spec reading is the top cause of conformance failures.
+- Build a requirements checklist with MUST/SHOULD/MAY categorization and check items off during implementation.
+- Implement and test one module at a time. Incremental validation catches spec misunderstandings early when they are cheap to fix.
+- Design your architecture to mirror the specification's structure — if the spec has sections for "Strings," "Numbers," and "Arrays," your code should have corresponding modules.
+- When a test fails, trace the failure to the specific spec clause before attempting a fix. The spec is the source of truth, not your intuition.
 
 **Avoid:**
-- Do not rely on general programming knowledge to fill gaps in the specification. If the spec is silent on a behavior, flag it explicitly rather than guessing from prior experience with similar systems.
-- Do not treat the specification as a one-time input that you read once and then set aside. Keep it as a persistent reference throughout the entire implementation.
-- Do not attempt to implement the entire system in one pass. Multi-constraint satisfaction in a single generation step is where agents fail most often (~45% of all errors).
-- Do not write generic error messages. Every error should trace to a specification section, making failures diagnosable against the standard.
+- Do not generate the entire implementation in a single pass. Monolithic generation leads to compounding spec violations that are expensive to untangle.
+- Do not re-read large files repeatedly to "refresh" context. Build a module map during the first read and use targeted lookups thereafter.
+- Do not invent behavior for cases the spec does not cover — flag them as undefined and ask the user for guidance, or follow the spec's stated default handling.
+- Do not skip edge cases documented in the spec (surrogate pairs, integer overflow, malformed input). These are where conformance tests focus.
+- Do not optimize prematurely. Get a conforming implementation first, then optimize with the spec's performance constraints in mind.
 
 ## Error Handling
 
-| Failure Mode | Frequency | Recovery Strategy |
-|---|---|---|
-| **Constraint violation** (satisfies some but not all spec requirements) | ~45% | Re-read the violated spec section. List all constraints in that section. Check implementation against each one individually. The violation is usually in a constraint interaction, not a missing feature. |
-| **Type mismatch** (code violates scaffold signatures) | ~25% | Return to the scaffold. The type is derived from the spec, so a mismatch means the implementation has drifted from the specification's data model. Re-derive the type from the spec and adjust. |
-| **Missing edge cases** (specification corner cases unhandled) | ~20% | Walk the constraint checklist for the relevant section. Specifications often define edge cases in notes, appendices, or "special case" paragraphs. Search for "unless", "except", "if ... then" in the spec text. |
-| **Logic errors** (algorithm wrong despite correct structure) | ~10% | Trace through a failing test case by hand against the specification's algorithm description. Compare each step of the spec's pseudocode to the implementation. |
+**Specification ambiguity:** When the spec is unclear or contradictory, flag the ambiguity explicitly. Quote the conflicting clauses. Propose the most conservative interpretation (reject rather than accept ambiguous input) and note it for the user.
+
+**Test failures with no obvious spec violation:** Re-read the specific spec section governing the failing case. Often the issue is a subtle encoding rule or edge case buried in a "Note" or "Implementation Consideration" section. Check for off-by-one errors in index-based specs.
+
+**Scaling difficulties (large specs, many modules):** If the specification exceeds what can be held in context, create an explicit index mapping spec sections to code modules. Work section by section rather than trying to hold the full spec in working memory.
+
+**API scaffold mismatches:** If the provided API surface conflicts with what the specification naturally requires, do not silently work around it. Raise the conflict with the user — the scaffold may need adjustment, or the spec may permit a different decomposition.
+
+**Integration failures:** When individually-correct modules fail together, the issue is almost always at module boundaries. Check that data flowing between modules matches the types and invariants both sides expect. Trace a single input end-to-end through the module chain.
 
 ## Limitations
 
-- **Ambiguous specifications**: This workflow assumes a well-written, authoritative specification. If the standard is internally inconsistent, incomplete, or relies heavily on implicit knowledge, the constraint extraction step will produce gaps that compound during implementation.
-- **Performance optimization**: Specification-driven construction prioritizes correctness, not performance. The resulting implementation will be correct per the spec but may need a separate optimization pass (which is outside the spec-fidelity workflow).
-- **Specifications requiring external context**: Some RFCs reference other RFCs or assume familiarity with related standards. If the user provides only one document but the implementation requires knowledge from referenced standards, flag the missing references explicitly rather than inferring behavior.
-- **Very large specifications**: For specs over ~100 pages (e.g., full HTTP/2, TLS 1.3), the constraint checklist from step 2 can become unwieldy. In these cases, subset the specification to the user's required scope before beginning.
-- **Language-specific idioms**: The scaffold design assumes a typed language. For dynamically typed languages, the scaffold step produces module/function signatures rather than type definitions, and provides less compile-time protection against constraint violations.
+- Specifications that rely heavily on diagrams, visual formats, or non-textual content may not be fully accessible for extraction. Request the user provide a text summary of visual requirements.
+- Extremely large specifications (500+ pages) exceed practical context limits. The skill works best with focused specification sections or standards under ~100 pages.
+- Performance-critical implementations (real-time systems, high-throughput codecs) may need optimization passes that go beyond what specification conformance alone can guide.
+- Specifications with extensive cross-references to other standards (e.g., a protocol spec referencing multiple subsidiary RFCs) require iterative deepening — not all dependencies can be resolved in a single pass.
+- This approach assumes the specification is authoritative and correct. Buggy or outdated specs produce conforming but incorrect implementations.
 
 ## Reference
 
-**Paper**: Zhang et al., "SWE-AGI: Benchmarking Specification-Driven Software Construction with MoonBit in the Era of Autonomous Agents" (arXiv:2602.09447v2, 2026).
-**Key takeaway**: Specification fidelity — not general coding ability — determines success in autonomous software construction. The critical technique is explicit constraint mapping + iterative spec-referenced validation. Code reading (re-consulting the spec) outweighs code writing as the dominant factor in success at scale.
-**Repository**: https://github.com/moonbitlang/SWE-AGI
+**Paper:** [SWE-AGI: Benchmarking Specification-Driven Software Construction with MoonBit in the Era of Autonomous Agents](https://arxiv.org/abs/2602.09447v2) — Zhang et al., 2026. Key takeaway: code reading dominates token budgets at scale (60-75%); explicit planning phases before coding improve success rates by 20-30%; incremental module-by-module validation is essential for specification conformance in systems requiring 1,000-10,000 lines of implementation.
