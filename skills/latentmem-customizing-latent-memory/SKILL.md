@@ -1,83 +1,103 @@
 ---
 name: "latentmem-customizing-latent-memory"
-description: "Large language model (LLM)-powered multi-agent systems (MAS) demonstrate remarkable collective intelligence, wherein multi-agent memory serves as a pivotal mechanism for continual adaptation. Implements techniques from 'LatentMem: Customizing Latent Memory for Multi-Agent Systems'. Use for tasks involving: search retrieval, agent framework. Triggers: \"Find information about...\", \"Search the codebase for...\", \"Build a pipeline that...\", \"Coordinate multiple tasks to...\""
+description: "Large language model (LLM)-powered multi-agent systems (MAS) demonstrate remarkable collective intelligence, wherein multi-agent memory serves as a pivotal mechanism for continual adaptation Implements the LatentMem approach. Use for: search-retrieval, agent-framework. Triggers: 'search for...', 'find information about...', 'orchestrate...', 'build a pipeline...'"
 ---
 
 # LatentMem: Customizing Latent Memory for Multi-Agent Systems
 
-You are a search and retrieval specialist. You find, retrieve, rank, and synthesize information from diverse sources.
+This skill implements the approach described in *LatentMem: Customizing Latent Memory for Multi-Agent Systems*. To address these limitations, we propose LatentMem, a learnable multi-agent memory framework designed to customize agent-specific memories in a token-efficient manner.
 
-**Paper:** [2602.03036v1](https://arxiv.org/abs/2602.03036v1) | **Category:** cs.CL | **Published:** 2026-02-03
-**Authors:** Muxin Fu, Guibin Zhang, Xiangyuan Xue, Yafu Li, Zefeng He
+**Paper:** [https://arxiv.org/abs/2602.03036v1](https://arxiv.org/abs/2602.03036v1) | **Category:** cs.CL | **Published:** 2026-02-03
 
-## Research Context
+## When to Use
 
-> Large language model (LLM)-powered multi-agent systems (MAS) demonstrate remarkable collective intelligence, wherein multi-agent memory serves as a pivotal mechanism for continual adaptation. However, existing multi-agent memory designs remain constrained by two fundamental bottlenecks: (i) memory homogenization arising from the absence of role-aware customization, and (ii) information overload induced by excessively fine-grained memory entries. To address these limitations, we propose LatentMem, a learnable multi-agent memory framework designed to customize agent-specific memories in a token-efficient manner. Specifically, LatentMem comprises an experience bank that stores raw interaction trajectories in a lightweight form, and a memory composer that synthesizes compact latent memories conditioned on retrieved experience and agent-specific contexts. Further, we introduce Latent Memory Policy Optimization (LMPO), which propagates task-level optimization signals through latent memories to the composer, encouraging it to produce compact and high-utility representations. Extensive experiments across diverse benchmarks and mainstream MAS frameworks show that LatentMem achieves a performance gain of up to $19.36$% over vanilla settings and consistently outperforms existing memory architectures, without requiring any modifications to the underlying frameworks.
+- When searching, retrieving, and synthesizing information from multiple sources
+- When orchestrating multiple steps or agents to solve a complex problem
+- When facing the challenge described in the paper: however, existing multi-agent memory designs remain constrained by two fundamental bottlenecks: (i) memory homogenization arising from the absence of role-aware customization, and (ii) information overload induced by excessively fine-grained memory entries.
 
-## Key Techniques from This Paper
+## Core Technique
 
-- Proposes: latent memory policy optimization (lmpo)
-- Achieves: a performance gain of up to $19
-- Achieves: existing memory architectures
+**The Problem:** However, existing multi-agent memory designs remain constrained by two fundamental bottlenecks: (i) memory homogenization arising from the absence of role-aware customization, and (ii) information overload induced by excessively fine-grained memory entries.
 
-## Workflow
+To address these limitations, we propose LatentMem, a learnable multi-agent memory framework designed to customize agent-specific memories in a token-efficient manner.
 
-Apply the techniques from this research using the following process:
+Further, we introduce Latent Memory Policy Optimization (LMPO), which propagates task-level optimization signals through latent memories to the composer, encouraging it to produce compact and high-utility representations.
 
-1. Decompose the user's information need into specific sub-queries
-2. Identify the best sources: code search, documentation, web, databases, embeddings
-3. Execute searches with multiple query formulations for recall
-4. Rank and filter results by relevance, recency, and authority
-5. Synthesize findings into a structured answer with citations
-6. Highlight confidence levels and information gaps
+**Key Results:** Large language model (LLM)-powered multi-agent systems (MAS) demonstrate remarkable collective intelligence, wherein multi-agent memory serves as a pivotal mechanism for continual adaptation.
 
-### Additional: You are a multi-agent orchestration specialist
+## Step-by-Step Workflow
 
-1. Analyze the task and determine if multi-agent decomposition provides value
-2. Design the agent topology: sequential pipeline, parallel fan-out, or hierarchical
-3. Define clear interfaces between agents: inputs, outputs, error contracts
-4. Execute agents with appropriate timeouts, retries, and fallbacks
+1. Analyze the user's query to identify the core information need and any constraints
+2. Decompose the query into 2-4 specific sub-questions that can be independently searched
+3. Apply the LatentMem approach: formulate multiple search strategies per sub-question
+4. Execute searches across available sources (codebase, documentation, web, databases)
+5. Rank results by relevance using the paper's scoring criteria: authority, recency, and semantic match
+6. Cross-reference findings across sources to identify consensus and conflicts
+7. Synthesize results into a structured answer with inline citations
+8. Highlight confidence levels for each claim and flag any information gaps
 
-## Approach Selection
+## Examples
 
-Determine the appropriate approach based on the user's request:
+**Example 1: Multi-source information synthesis**
 
-**Search Retrieval task?** Decompose the user's information need into specific sub-queries
-**Agent Framework task?** Analyze the task and determine if multi-agent decomposition provides value
+```
+User: Research how to implement latentmem in my project
 
-## Quality Checklist
+Approach:
+1. Decompose into sub-queries: architecture, implementation, configuration, testing
+2. Search documentation, code examples, and best practices for each
+3. Cross-reference findings to identify the consensus approach
+4. Synthesize into a step-by-step implementation guide
 
-Before delivering results, verify:
+Output: A structured research report with implementation guide,
+code examples, and links to authoritative sources.
+```
 
-- [ ] Every factual claim has a source reference
-- [ ] Conflicting information is explicitly noted
-- [ ] Results are ranked by relevance, not just recency
-- [ ] The answer directly addresses the user's actual question
-- [ ] Each agent has a single, well-defined responsibility
-- [ ] Agent failures don't cascade to the whole pipeline
+**Example 2: Debugging and iteration**
 
-## When to Use This Skill
+```
+User: The initial approach isn't working well, can you refine it?
 
-This skill is triggered by requests such as:
+Approach:
+1. Identify where the current approach is falling short
+2. Consult the paper's ablation studies for guidance on what matters most
+3. Adjust parameters or approach based on the paper's recommendations
+4. Re-run and compare results
 
-- "Find information about..."
-- "Search the codebase for..."
-- "Build a pipeline that..."
-- "Coordinate multiple tasks to..."
+Output: An improved solution with explanation of what changed and why,
+referencing the paper's findings about what factors affect performance.
+```
 
-## Practical Application
+## Best Practices
 
-When applying the techniques from this paper:
+**Do:**
+- Read the full problem description before applying LatentMem
+- Start with the simplest application of the technique and add complexity incrementally
+- Validate intermediate results at each step of the workflow
+- Adapt the approach to the specific domain rather than applying it rigidly
 
-1. **Understand the problem context** -- The paper addresses large language model (llm)-powered multi-agent systems (mas) demonstrate remarkable collective intelligence, wherein multi-agent memory serves as a pivotal mechanism for continual adaptation.
-2. **Adapt to the user's specific needs** -- The paper's approach may need tailoring for the particular codebase, language, or domain
-3. **Combine with existing tools** -- Use this skill's techniques alongside Claude's built-in capabilities (file reading, code execution, web search)
-4. **Iterate and refine** -- Apply the technique, evaluate results, and refine the approach based on feedback
+**Avoid:**
+- Applying the technique blindly without understanding the problem context
+- Skipping validation steps to save time -- errors compound quickly
+- Over-engineering the solution beyond what the task requires
+- Ignoring the paper's stated limitations and applying it outside its scope
+
+## Error Handling
+
+- **Technique doesn't apply**: If the problem doesn't match LatentMem's assumptions, fall back to general-purpose reasoning and explain why
+- **Partial results**: If some steps succeed but others fail, present the partial results with clear indication of what's missing
+- **Conflicting information**: When sources disagree, present both sides with evidence and let the user decide
+- **Performance issues**: If the approach is too slow, simplify by reducing the number of decomposition steps
 
 ## Limitations
 
-- This skill encodes the *approach* from the paper, not a direct implementation of its trained model
-- Results may vary based on the complexity and domain of the specific task
-- For tasks outside the paper's scope, fall back to general-purpose reasoning
+- This skill encodes the *methodology* from the paper, not a trained model -- results depend on Claude's general capabilities
+- The paper was evaluated on specific benchmarks; real-world tasks may differ significantly
+- The original problem context: however, existing multi-agent memory designs remain constrained by two fundamental bottlenecks: (i) memory homogenization arising from the absence of role-aware customization, and (ii) information overload induced by excessively fine-grained memory entries
+- For tasks clearly outside the paper's scope, prefer general-purpose approaches
 
-Refer to the [full paper](https://arxiv.org/abs/2602.03036v1) for detailed methodology, experimental results, and ablation studies.
+## Reference
+
+**[LatentMem: Customizing Latent Memory for Multi-Agent Systems](https://arxiv.org/abs/2602.03036v1)**
+Key finding: Large language model (LLM)-powered multi-agent systems (MAS) demonstrate remarkable collective intelligence, wherein multi-agent memory serves as a pivotal mechanism for continual adaptation.
+Look for: methodology section, experimental setup, and ablation studies for tuning guidance.

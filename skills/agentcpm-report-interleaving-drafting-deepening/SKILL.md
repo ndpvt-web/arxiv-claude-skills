@@ -1,202 +1,232 @@
 ---
 name: "agentcpm-report-interleaving-drafting-deepening"
-description: "Generate deep research reports by interleaving evidence-based drafting with reasoning-driven deepening (WARP). Use when: 'write a deep research report on X', 'generate an in-depth analysis of Y', 'create a comprehensive technical report', 'research and write about Z with citations', 'produce an insight-driven report on this topic', 'deep dive report with iterative refinement'."
+description: >
+  Generate deep research reports by interleaving evidence-based drafting with reasoning-driven
+  deepening. Uses the WARP (Writing As Reasoning Policy) framework from AgentCPM-Report to
+  dynamically evolve outlines during writing instead of rigidly following a static plan.
+  Trigger phrases: "deep research report", "write a comprehensive analysis",
+  "investigate and write up", "research report on", "deep dive report",
+  "analyze this topic thoroughly and produce a report"
 ---
 
 # Interleaving Drafting and Deepening for Deep Research Reports
 
-This skill enables Claude to produce deep, insight-driven research reports by applying the Writing As Reasoning Policy (WARP) from AgentCPM-Report. Instead of planning a full outline upfront and then filling it in (plan-then-write), WARP treats writing itself as a reasoning mechanism: the agent starts with a sparse outline, drafts evidence-grounded sections, then pauses to diagnose logical gaps and selectively expand the outline before resuming drafting. This interleaving of drafting and deepening mirrors how expert researchers actually write — discovering what they don't know through the act of writing, then going back to investigate and restructure.
+This skill enables Claude to generate deep, insight-rich research reports by alternating between **evidence-based drafting** (writing grounded in retrieved information) and **reasoning-driven deepening** (identifying gaps, expanding underdeveloped sections, and evolving the outline). Rather than committing to a fixed outline upfront and filling it in linearly, this approach mirrors how expert human writers work: they start writing, discover what they don't know, research further, restructure, and deepen iteratively. The result is reports with substantially richer insight and more coherent argumentation than plan-then-write methods produce.
 
 ## When to Use
 
-- When the user asks for a comprehensive research report, technical survey, or deep analysis on a topic
-- When the user requests a document that requires synthesizing information from multiple sources with citations
-- When a writing task demands progressive discovery — where the full scope cannot be known before writing begins
-- When the user wants an iterative, self-improving report rather than a single-pass generation
-- When producing consulting-style deliverables, literature reviews, competitive analyses, or due-diligence reports
-- When the user says something like "research X thoroughly and write a report" or "deep dive into Y"
+- When the user asks to produce a comprehensive research report on an open-ended topic (e.g., "Write a deep analysis of WebAssembly adoption in production systems")
+- When generating technical documentation that requires synthesizing information from multiple sources, codebases, or domains
+- When the user needs an investigation report — e.g., "Research why our API latency spiked and write up findings"
+- When producing architecture decision records (ADRs) or design documents that require exploring trade-offs in depth
+- When writing competitive analyses, technology evaluations, or literature reviews where surface-level coverage is insufficient
+- When the user says "deep dive", "thorough analysis", "comprehensive report", or "investigate and document"
 
 ## Key Technique: Writing As Reasoning Policy (WARP)
 
-**The core insight:** Traditional report generation follows plan-then-write — generate a detailed outline first, then fill each section. This fails because constructing a good outline requires the very knowledge you haven't gathered yet. WARP solves this by making outline construction and content generation co-evolve. The outline starts sparse and grows organically as writing reveals gaps.
+Traditional report generation follows a **plan-then-write** paradigm: first produce a complete outline, then fill each section. This fails for deep research because constructing a good outline *itself* requires understanding the material — creating a chicken-and-egg problem. WARP breaks this by treating the outline as a living document that co-evolves with the content.
 
-**Two alternating macro-phases:** The agent cycles between (1) **Evidence-Based Drafting**, where it processes each section sequentially — formulating search queries conditioned on what's already been written, retrieving evidence, and synthesizing grounded content that extends the logical flow; and (2) **Reasoning-Driven Deepening**, where it steps back to assess the entire draft globally, identifies the single section most in need of expansion, decomposes it into sub-sections, and updates the outline. Critically, retrieval during drafting is conditioned on the accumulated narrative, not just the section title, ensuring coherence across sections.
+The core insight is that **writing reveals what you don't know**. When you draft a section on, say, "Performance Characteristics of Column-Store Databases," you discover specific sub-questions (write amplification under concurrent writes, compression ratio vs. query speed trade-offs) that weren't apparent during initial planning. WARP captures this by alternating between two phases:
 
-**Termination as a learned decision:** Rather than expanding forever or stopping at an arbitrary count, the agent evaluates whether the report has reached information saturation — whether the logical chain is complete and depth is sufficient. This is a deliberate decision point, not a loop counter.
+1. **Evidence-Based Drafting**: For each section in the current outline, formulate context-aware queries conditioned on what has already been written, retrieve relevant information, and synthesize it into grounded prose. The key is that queries are informed by the *accumulating narrative*, not just the section title.
+
+2. **Reasoning-Driven Deepening**: After drafting, evaluate the content for logical gaps, superficial arguments, and underdeveloped areas. Decompose weak sections into granular sub-sections, expanding the outline hierarchy. Then trigger a new drafting cycle targeting only the newly created sections. The agent autonomously decides when to stop deepening by evaluating whether additional expansion would yield diminishing returns.
+
+This interleaving produces reports that score significantly higher on *insight* — the ability to surface non-obvious connections and deep analysis — compared to static-outline approaches.
 
 ## Step-by-Step Workflow
 
-1. **Receive query and initialize a sparse Level-1 outline.** Analyze the user's question and produce only top-level section titles (3-6 sections) with one-sentence writing intents for each. Do NOT attempt a comprehensive hierarchical outline yet — keep it intentionally skeletal.
+1. **Capture the research question and constraints.** Parse the user's request to identify: the core topic, desired depth, target audience, any specific angles or sub-questions, output format preferences, and available sources (codebase, URLs, documents, or web search).
 
-2. **Enter Evidence-Based Drafting for the first section.** Formulate 1-5 search keywords conditioned on the query and the section's writing intent. Use web search or provided sources to retrieve relevant evidence. Synthesize the section grounding every claim in retrieved information with inline citations.
+2. **Generate a sparse Level-1 outline.** Create an intentionally minimal outline with only 3-5 top-level section titles and one-sentence writing intents for each. Do NOT try to produce a comprehensive outline — leave room for discovery. Example:
+   ```
+   ## 1. Background and Motivation
+   Intent: Establish why this topic matters and what problem it addresses.
+   ## 2. Core Technical Approach
+   Intent: Explain the primary mechanism or architecture.
+   ## 3. Empirical Evidence and Trade-offs
+   Intent: Present data, benchmarks, and practical considerations.
+   ## 4. Synthesis and Recommendations
+   Intent: Draw cross-cutting insights and actionable conclusions.
+   ```
 
-3. **Draft subsequent sections sequentially, not in parallel.** For each next section, formulate search queries conditioned on both the section intent AND all previously drafted content. This ensures new information extends the logical flow rather than repeating or contradicting earlier sections. Cite sources for all factual claims.
+3. **Begin the first Drafting pass.** For each Level-1 section, formulate 2-3 specific search queries conditioned on the section intent AND any context already gathered. Retrieve information (via web search, codebase search, file reads, or provided documents). Write a substantive first draft of each section grounded in retrieved evidence, citing sources inline.
 
-4. **Shift to Reasoning-Driven Deepening after completing a drafting pass.** Read the entire draft as a fresh observation. Diagnose: Which section is most superficial? Where are logical gaps? Where would a domain expert push back? Identify exactly one section that most needs expansion.
+4. **Execute Reasoning-Driven Deepening.** Read through the full draft and for each section ask:
+   - Are there logical gaps where claims lack supporting evidence?
+   - Are there surface-level statements that could be decomposed into deeper sub-questions?
+   - Did drafting reveal new angles not in the original outline?
+   - Are there contradictions or tensions between sections that need resolution?
 
-5. **Expand the weakest section by decomposing it into sub-sections.** Add 2-4 sub-section headings under the identified section, each with a specific writing intent. Update the outline to reflect this new structure. Constrain expansion to one additional hierarchy level per deepening step.
+   For each identified gap, create a new sub-section in the outline (Level-2 or Level-3).
 
-6. **Return to Evidence-Based Drafting for the newly expanded sub-sections.** Formulate fresh, more targeted search queries for each sub-section. Retrieve new evidence and draft the sub-sections, again conditioning on the full accumulated draft for coherence.
+5. **Expand the outline with new sub-sections.** Update the working outline to reflect the deeper structure. Mark which new sub-sections need drafting. Typical expansion: a Level-1 section with a gap becomes 2-4 Level-2 sub-sections, each with a specific writing intent.
 
-7. **Repeat the Drafting-Deepening cycle.** After each drafting pass, re-enter the deepening phase. Continue cycling until one of these termination conditions is met: (a) all sections have sufficient depth and logical completeness, (b) further expansion would add redundancy rather than insight, or (c) the maximum hierarchy depth (3 levels) or deepening budget (8-12 cycles) is reached.
+6. **Draft the newly added sub-sections.** Formulate new, targeted queries conditioned on the *existing draft content* (not just section titles). Retrieve additional evidence and write each new sub-section. This is where the deepest insights emerge — queries are now highly specific because they're informed by what was already written.
 
-8. **Make an explicit termination decision.** Before stopping, verify: Does the report answer the original query comprehensively? Is the logical chain from introduction to conclusion complete? Are insights grounded in evidence? If yes, terminate. If not, identify the gap and do one more cycle.
+7. **Repeat deepening (2-4 cycles maximum).** After each drafting pass, re-evaluate for gaps. Continue the interleaving loop but apply diminishing-returns logic: stop expanding when new sub-sections would add marginal value, when the outline has reached Level-3 depth across most sections, or when the content adequately addresses the original research question.
 
-9. **Assemble the final report.** Consolidate all drafted sections under the final evolved outline. Ensure section transitions are coherent. Compile a references section from all cited sources. Add an executive summary synthesizing key insights.
+8. **Synthesize cross-cutting insights.** Review the full expanded draft for themes, patterns, and connections that span multiple sections. Write or rewrite the synthesis/conclusion section to surface these non-obvious insights. This is where the iterative process pays off — connections invisible during initial planning become clear after deep drafting.
 
-10. **Output the report with the evolved outline visible.** Present the final document with clear hierarchical structure reflecting the outline as it evolved through deepening, not as it was initially planned.
+9. **Polish and verify coherence.** Ensure the final report reads as a unified document, not a collection of independently drafted sections. Check that: the introduction previews what the deep investigation actually found (not what was initially planned), transitions between sections are logical, evidence is consistently cited, and the overall argument flows.
+
+10. **Deliver with a structural summary.** Present the final report along with a brief note on how the outline evolved — which sections were added during deepening, what unexpected findings emerged. This transparency helps the user understand the report's depth.
 
 ## Concrete Examples
 
-**Example 1: Technical Research Report**
+**Example 1: Technical Architecture Investigation**
 
 ```
-User: Write a deep research report on retrieval-augmented generation (RAG)
-      architectures and their trade-offs for production systems.
+User: Write a deep research report on event sourcing vs. traditional CRUD
+for our order management system. We process ~50K orders/day.
 
 Approach:
+1. Sparse Level-1 outline:
+   - Background (why this matters for order systems)
+   - Event Sourcing Mechanics
+   - CRUD Approach Baseline
+   - Comparative Analysis
+   - Recommendation
 
-1. Initialize sparse outline:
-   - Introduction and Motivation
-   - Core RAG Architectures
-   - Retrieval Strategies
-   - Production Deployment Considerations
-   - Conclusion
+2. First Drafting pass: Research event sourcing fundamentals,
+   CRUD patterns in order systems, retrieve benchmark data.
+   Write initial sections.
 
-2. Draft "Introduction and Motivation" — search for RAG origin papers,
-   retrieve key definitions, write grounded intro with citations.
+3. Deepening round 1 — gaps discovered:
+   - "Event Sourcing Mechanics" is too shallow on replay/projection cost
+   - Missing: how event schema evolution works at 50K orders/day
+   - Missing: operational complexity (debugging, monitoring)
+   → Add sub-sections: "Projection Rebuild Costs at Scale",
+     "Schema Evolution Strategies", "Operational Observability"
 
-3. Draft "Core RAG Architectures" — search conditioned on intro context,
-   retrieve papers on naive RAG, advanced RAG, modular RAG. Write section
-   covering each variant.
+4. Second Drafting pass: Targeted queries on projection rebuild
+   benchmarks, schema versioning patterns (upcasting, lazy migration),
+   and event store monitoring tools. Write new sub-sections.
 
-4. Draft remaining sections sequentially, each search informed by prior content.
+5. Deepening round 2 — new insight emerges:
+   - The operational complexity section reveals that hybrid approaches
+     (CRUD + event log for audit) may dominate pure event sourcing
+     for this scale
+   → Add sub-section: "Hybrid Architecture: CRUD with Event Audit Trail"
 
-5. DEEPENING PASS 1: Read full draft. Diagnose that "Core RAG Architectures"
-   is too surface-level — covers what they are but not how they differ.
-   Expand into:
-   - 2.1 Naive RAG: Retrieve-then-Read
-   - 2.2 Advanced RAG: Pre/Post-Retrieval Optimization
-   - 2.3 Modular RAG: Composable Pipelines
-   - 2.4 Comparative Analysis
+6. Final synthesis surfaces the non-obvious conclusion:
+   At 50K orders/day, pure event sourcing's replay costs likely
+   outweigh its benefits unless the team needs full temporal queries.
+   The hybrid approach captures 80% of the audit/replay value at
+   20% of the operational cost.
 
-6. Draft expanded sub-sections with targeted searches for each variant.
-
-7. DEEPENING PASS 2: "Production Deployment" section lacks specifics.
-   Expand into:
-   - 4.1 Latency-Accuracy Trade-offs
-   - 4.2 Index Management at Scale
-   - 4.3 Evaluation and Monitoring
-
-8. Draft new sub-sections. Terminate — all sections now have sufficient depth.
-
-Output: A 3-level hierarchical report with ~15 sections, inline citations,
-comparative analysis tables, and an executive summary.
+Output: 2500-word report with 4 top-level sections expanded to
+12 sub-sections, concrete latency estimates, and a decision matrix.
 ```
 
-**Example 2: Competitive Analysis Report**
+**Example 2: Codebase Investigation Report**
 
 ```
-User: Research the current state of real-time collaboration tools and
-      write a report comparing approaches.
+User: Investigate why our test suite takes 45 minutes and write
+up a report with recommendations.
 
 Approach:
+1. Sparse Level-1 outline:
+   - Current State (test counts, timing breakdown)
+   - Bottleneck Analysis
+   - Optimization Opportunities
+   - Recommended Action Plan
 
-1. Initialize sparse outline:
-   - Market Overview
-   - Technical Approaches to Real-Time Sync
-   - Major Players and Their Architectures
-   - Trade-offs and Selection Criteria
-   - Future Directions
+2. First Drafting pass: Search codebase for test configuration,
+   timing data, CI logs. Identify top-level numbers (test count,
+   parallelism settings, fixture setup patterns).
 
-2. Draft each section sequentially. "Technical Approaches" search is
-   conditioned on market context from section 1.
+3. Deepening round 1 — gaps discovered:
+   - "Bottleneck Analysis" reveals database fixture setup is 60%
+     of total time, but WHY is unclear
+   - Missing: analysis of test isolation strategy (per-test DB
+     reset vs. transaction rollback)
+   → Add: "Database Fixture Teardown Profiling",
+     "Test Isolation Strategy Analysis"
 
-3. DEEPENING PASS 1: "Technical Approaches" names OT and CRDTs but
-   doesn't explain the algorithmic differences or failure modes.
-   Expand into:
-   - 2.1 Operational Transformation (OT)
-   - 2.2 Conflict-Free Replicated Data Types (CRDTs)
-   - 2.3 Hybrid Approaches
-   Draft with targeted technical searches.
+4. Second Drafting pass: Grep for setUp/tearDown patterns, analyze
+   fixture factories, check for missing test database pooling.
+   Write sub-sections with specific file:line references.
 
-4. DEEPENING PASS 2: "Major Players" is a list without insight.
-   Expand into architecture breakdowns per vendor with specific
-   technical choices each made and why.
+5. Deepening round 2:
+   - Discover that 12 integration tests each spin up a Redis
+     instance — invisible from top-level timing
+   → Add: "Hidden Infrastructure Setup Costs"
 
-5. DEEPENING PASS 3: Evaluate termination — report now has depth on
-   both technical and competitive dimensions. Terminate.
+6. Synthesis: The 45-minute runtime is 60% DB fixtures (fixable
+   with transaction rollback), 20% redundant Redis instances
+   (fixable with shared test container), 20% actual test execution.
 
-Output: Structured report with technical depth, vendor-specific analysis,
-comparison matrices, and cited sources throughout.
+Output: Report with specific file references, a prioritized fix
+list with estimated impact, and a phased implementation plan.
 ```
 
-**Example 3: Investigative Code Architecture Report**
+**Example 3: Technology Evaluation**
 
 ```
-User: Analyze our microservices codebase and write a report on
-      architectural debt and recommended refactoring priorities.
+User: Deep dive on whether we should migrate from REST to gRPC
+for our internal microservices communication.
 
 Approach:
+1. Sparse outline: Background, gRPC Mechanics, Migration Costs,
+   Performance Comparison, Recommendation.
 
-1. Initialize sparse outline from codebase exploration:
-   - System Overview and Service Map
-   - Dependency Analysis
-   - Identified Architectural Debt
-   - Refactoring Recommendations
-   - Risk Assessment
+2. First Drafting pass: Research gRPC streaming, protobuf schema
+   management, HTTP/2 multiplexing benefits. Write initial sections.
 
-2. Draft "System Overview" by reading config files, docker-compose,
-   service manifests. Draft "Dependency Analysis" by tracing imports
-   and API calls across services.
+3. Deepening round 1:
+   - "Migration Costs" is vague — need concrete sub-sections
+   → Add: "Client Library Generation Pipeline", "Backward
+     Compatibility During Rollout", "Observability Tooling Gap"
+   - Performance section lacks our-context specificity
+   → Add: "Latency Profile for <1KB Payloads" (matches our p95)
 
-3. DEEPENING PASS 1: "Architectural Debt" section is vague.
-   Expand into specific categories discovered during drafting:
-   - 3.1 Circular Dependencies Between Services
-   - 3.2 Shared Database Anti-Patterns
-   - 3.3 Inconsistent Error Handling Contracts
-   Draft each with code-level evidence and file references.
+4. Second Drafting pass: Research protobuf backward compatibility
+   rules, gRPC-gateway for gradual migration, compare Jaeger/Zipkin
+   gRPC support vs REST.
 
-4. DEEPENING PASS 2: "Refactoring Recommendations" needs to be
-   prioritized by impact. Expand with effort/impact analysis per item.
+5. Deepening round 2:
+   - Discover that gRPC reflection + server streaming enables a
+     real-time dashboard pattern impossible with REST polling
+   → Add: "Emergent Architectural Possibilities"
 
-5. Terminate when each recommendation is grounded in specific code
-   evidence found during the drafting process.
+6. Synthesis: gRPC wins on latency and type safety, but the
+   migration's hidden cost is observability tooling. Recommend
+   gRPC for new services + gRPC-gateway adapter for existing ones.
 
-Output: Architecture report with file:line references, dependency diagrams
-described in text, and prioritized action items with rationale.
+Output: Structured report with latency benchmarks, migration
+checklist, and a "what we'd gain beyond performance" section
+that only emerged through iterative deepening.
 ```
 
 ## Best Practices
 
 **Do:**
-- Start with the sparsest possible outline (3-6 top-level sections). Trust the deepening process to add structure where it's actually needed.
-- Condition every search query on the accumulated draft, not just the section title. This prevents redundant retrieval and maintains narrative coherence.
-- During deepening, identify exactly ONE section to expand per cycle. Trying to expand everything at once defeats the purpose of focused deepening.
-- Cite sources inline during drafting. Evidence-grounding is not a post-processing step — it's integral to drafting quality.
-- Make termination an explicit reasoned decision, not a default. Ask: "Would a domain expert find this section satisfyingly deep?"
+- Start with an intentionally sparse outline (3-5 top-level sections). Resist the urge to plan comprehensively upfront — the deepening process will discover what's actually needed.
+- Condition each search query on what has already been written. A query for "event sourcing projection costs" is weaker than "event sourcing projection rebuild latency at 50K events/day with PostgreSQL" informed by earlier draft context.
+- Track which sections were added during deepening and surface this in the final report. The evolution of the outline IS part of the insight.
+- Cap deepening at 3-4 cycles. Research shows performance plateaus around 8-9 expansion steps — more is rarely better.
 
 **Avoid:**
-- Do NOT generate a detailed multi-level outline before writing anything. This is the plan-then-write anti-pattern that WARP specifically replaces.
-- Do NOT draft sections in parallel or out of order. Each section's search and synthesis must be informed by all prior sections.
-- Do NOT expand sections that are already sufficient just because deepening cycles remain. Stop when information saturation is reached.
-- Do NOT treat deepening as copy-editing. Deepening adds structural depth (new sub-sections with new evidence), not stylistic polish.
+- Do not generate a detailed 20-section outline before writing anything. This is the plan-then-write anti-pattern that WARP specifically addresses.
+- Do not draft all sections to completion before deepening. Interleave after each major section or pair of sections so that discoveries in one section can inform queries for the next.
+- Do not expand every section uniformly. Deepening should be targeted — only sections where gaps were detected get expanded. Some sections are fine at Level-1 depth.
+- Do not skip the synthesis step. The cross-cutting insight that emerges from reading the fully deepened draft is often the most valuable part of the report and cannot be produced by any individual section alone.
 
 ## Error Handling
 
-- **Insufficient sources found during search:** If a search returns poor results for a section, reformulate the query using terms and context from already-drafted sections. If still insufficient, note the gap explicitly in the draft and flag it during deepening for a different angle of investigation.
-- **Outline grows too large:** Cap hierarchy at 3 levels and deepening at 8-12 cycles. If the report is still incomplete at these limits, prioritize the highest-impact sections and note remaining gaps in a "Further Research" section.
-- **Circular deepening (same section keeps being flagged):** If a section is repeatedly identified as weakest, it may indicate the topic genuinely lacks available evidence. Acknowledge this limitation and move to the next-weakest section.
-- **Coherence drift between cycles:** After each deepening pass, re-read transitions between the expanded section and its neighbors. Adjust bridging sentences to maintain narrative flow.
-- **User provides a pre-made outline:** Treat it as the Level-1 initialization but still apply deepening. Inform the user the outline may evolve during writing — this is a feature, not a deviation.
+- **Insufficient source material**: If search/retrieval yields thin results for a sub-section created during deepening, flag it explicitly in the report rather than padding with speculation. Write: "Limited evidence was found for [X]; the following is based on [Y] sources and should be validated."
+- **Outline explosion**: If deepening produces more than 15-20 sub-sections, consolidate. Merge closely related sub-sections and move peripheral findings to an appendix. The goal is depth on important areas, not breadth on everything.
+- **Circular deepening**: If a deepening cycle identifies the same gaps as the previous cycle, the issue is likely source quality, not outline structure. Stop expanding and note the knowledge gap in the report.
+- **Contradictory evidence**: When drafting surfaces conflicting information across sections, do not silently resolve it. Create a dedicated sub-section analyzing the contradiction — this often produces the report's strongest insights.
 
 ## Limitations
 
-- This approach is designed for reports requiring depth and synthesis (1,000+ words). For short summaries, quick answers, or single-topic explanations, the overhead of interleaving cycles is unnecessary — use direct generation instead.
-- The quality of deepening depends on the ability to diagnose gaps in the draft. For highly specialized domains where Claude has limited training data, gap detection may miss important deficiencies.
-- Sequential section drafting means earlier sections influence later ones. If the initial framing is significantly wrong, the error can propagate. Mitigate by treating the first deepening pass as an opportunity to reassess the overall framing.
-- Without access to specialized databases or APIs, evidence retrieval is limited to web search and provided context. For domains requiring proprietary data, the user must supply source material.
+- This approach is designed for **open-ended research topics** where the full scope isn't knowable upfront. For well-scoped, structured tasks (e.g., "document this API's endpoints"), a simple outline-then-write approach is more efficient.
+- The iterative deepening process produces longer reports. If the user needs a brief summary (under 500 words), use a standard approach and reserve this technique for when depth is explicitly valued.
+- Quality depends heavily on the retrieval step. If source material is poor (e.g., no web access, sparse codebase docs), deepening cycles will yield diminishing returns quickly. Acknowledge source limitations early.
+- The technique works best when Claude can perform actual information retrieval (web search, codebase search, file reads). Without tool access to gather evidence, the "evidence-based" drafting phase degrades to reasoning from training knowledge alone.
 
 ## Reference
 
-**Paper:** [AgentCPM-Report: Interleaving Drafting and Deepening for Open-Ended Deep Research](https://arxiv.org/abs/2602.06540v1) — Focus on Section 3 (WARP framework), Figure 2 (interleaving architecture), and Section 4 (multi-stage training) for the core methodology showing how writing-as-reasoning outperforms plan-then-write for deep research.
+[AgentCPM-Report: Interleaving Drafting and Deepening for Open-Ended Deep Research](https://arxiv.org/abs/2602.06540v1) — Focus on Section 3 (WARP framework), particularly the five core actions (Initialize, Search, Write, Expand, Terminate) and how Evidence-Based Drafting and Reasoning-Driven Deepening interleave to produce reports that outperform closed-source systems on the Insight metric.
