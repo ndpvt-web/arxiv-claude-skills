@@ -1,191 +1,225 @@
 ---
 name: "mind-ambiguity-aleatoric-uncertainty"
-description: "Detect ambiguous user inputs in LLM pipelines using lightweight linear probes on hidden states, then route to clarification before answering. Based on AU-Probe from WWW 2026. Use when: 'detect ambiguous queries', 'add clarification step to QA pipeline', 'build safe medical QA system', 'probe hidden states for uncertainty', 'aleatoric uncertainty quantification', 'clarify before answer framework'."
+description: "Detect ambiguous user queries in safety-critical QA systems using aleatoric uncertainty probes on LLM hidden states, then route to clarification or answering. Use when: 'detect ambiguous medical questions', 'add clarification to my QA pipeline', 'build a safe medical chatbot', 'probe LLM hidden states for uncertainty', 'triage vague user queries before answering', 'implement clarify-before-answer logic'."
 ---
 
-# Mind the Ambiguity: Aleatoric Uncertainty Detection via Hidden-State Probing
+# Aleatoric Uncertainty Detection for Safe QA: Clarify-Before-Answer
 
-This skill teaches Claude to implement the AU-Probe "Clarify-Before-Answer" framework from Liu et al. (WWW 2026). The core technique trains a single-layer linear probe on frozen LLM hidden states to detect whether an input query is ambiguous (high aleatoric uncertainty) before the model generates an answer. When ambiguity is detected, the system routes to a clarification step instead of producing a potentially unsafe response. This is especially valuable in high-stakes domains like medical QA but applies to any system where input underspecification leads to unreliable outputs.
+This skill teaches Claude how to implement the AU-Probe "Clarify-Before-Answer" framework from the paper *Mind the Ambiguity* (WWW 2026). The core idea: ambiguous user queries in high-stakes domains (medical, legal, financial) cause LLMs to give wrong answers silently. Instead of answering blindly, you train a lightweight linear probe on the LLM's internal hidden states to detect whether a query is underspecified, then route ambiguous queries to a clarification step before generating an answer. The probe requires no LLM fine-tuning and no multiple forward passes — just a single inference pass with a linear classifier on the hidden states.
 
-## When to Use
+## When to Use This Skill
 
-- When building a medical QA system that must handle vague or underspecified patient queries safely
-- When adding an ambiguity-detection gate to an existing LLM inference pipeline
-- When implementing a "clarify before answer" workflow for any domain-specific chatbot
-- When you need lightweight uncertainty estimation without multiple forward passes or model fine-tuning
-- When probing LLM hidden states to classify input quality (clear vs. ambiguous)
-- When constructing a contrastive dataset of clear/ambiguous question pairs for probe training
-- When evaluating whether an LLM's internal representations linearly encode input uncertainty
+- When building a medical, legal, or financial QA system that must handle vague or incomplete user questions safely
+- When a user asks to add ambiguity detection or clarification logic to an existing LLM-based chatbot
+- When implementing a triage layer that decides whether to answer directly or ask follow-up questions
+- When training a linear probe on LLM hidden states to classify input properties (ambiguity, topic, safety)
+- When constructing contrastive datasets of clear vs. ambiguous question pairs for probe training
+- When evaluating whether an LLM pipeline handles underspecified inputs gracefully (benchmarking with CV-MedBench)
+- When the user wants to reduce hallucination risk by detecting inputs the model is uncertain about
 
-## Key Technique
+## Key Technique: Representation Engineering for Aleatoric Uncertainty
 
-**Aleatoric uncertainty (AU)** is the irreducible uncertainty caused by underspecified input — not model ignorance, but genuine ambiguity in what the user asked. The key insight from this paper is that AU is **linearly encoded** in LLM hidden states. Given a clear medical question and its vague counterpart, their residual-stream activations at certain transformer layers form linearly separable clusters. This means a trivially simple classifier — a single linear layer with sigmoid — can reliably distinguish ambiguous from clear inputs.
+**Aleatoric uncertainty (AU)** is the irreducible uncertainty that comes from the *input itself* being underspecified — not from the model lacking knowledge (that would be epistemic uncertainty). A question like "What medication helps with chest pain?" is ambiguous because chest pain has dozens of causes. The correct answer depends on context the user hasn't provided.
 
-**AU-Probe** exploits this by extracting the hidden activation `a(x)` at a selected layer from the final prompt token, then computing `score = sigmoid(w^T * a(x) + b)`. If the score exceeds a threshold (typically 0.5), the input is flagged as ambiguous and the system requests clarification instead of answering. The probe is trained with binary cross-entropy on paired clear/ambiguous examples — as few as 240 pairs suffice. No gradient flows back through the LLM; the probe trains on frozen activations in seconds.
+The paper's central discovery is that **AU is linearly encoded in LLM hidden states**. When you feed a clear question and its ambiguous counterpart through the same LLM and extract hidden states from intermediate layers, the difference between them lies along a consistent linear direction. This means a simple logistic regression or linear SVM trained on hidden-state vectors can classify whether an input is ambiguous with high accuracy (AUROC scores well above 0.8 across multiple LLMs).
 
-**Why this beats alternatives:** Sampling-based methods (semantic entropy, SAR) require 5-10+ forward passes (10-35 seconds per query). Likelihood methods (MSP, token entropy) operate on output distributions and miss input-level ambiguity. AU-Probe adds ~0.01 seconds of overhead on top of a single forward pass and achieves 49% higher AUROC than baselines on average, with near-perfect scores (0.97-0.99 AUROC) across tested models.
+This insight enables **AU-Probe**: a frozen linear classifier that sits on top of an LLM's hidden states at a chosen layer. During inference, you run the input through the LLM once, extract the hidden state at the probe layer, pass it through AU-Probe, and get an ambiguity score. If the score exceeds a threshold, the system asks the user for clarification instead of generating an answer. This "Clarify-Before-Answer" pipeline achieved a 9.48% average accuracy improvement over standard QA baselines across four open LLMs.
 
 ## Step-by-Step Workflow
 
-1. **Collect contrastive training pairs.** Gather 200-1000 domain-specific questions in two versions: a clear, fully-specified version and an ambiguous counterpart created via context omission (removing key clinical details), semantic vagueness (replacing specifics with broad terms), or logical inconsistency (introducing mild contradictions). Label clear=0, ambiguous=1.
+### Phase 1: Build the Contrastive Training Dataset
 
-2. **Extract hidden-state activations.** Run each question through the target LLM with hooks on every transformer layer. Capture the residual-stream activation vector from the **final prompt token** at each layer `l`, producing `a^(l)(x)` of dimension `d` (e.g., 4096 for 7B models). Store activations as numpy arrays or tensors keyed by `(sample_id, layer)`.
+1. **Collect domain-specific question pairs.** For each clear, well-specified question in your domain, create (or use an LLM to generate) an ambiguous variant that removes key clinical/contextual details. Each pair shares the same correct answer and a unique `id`. Label clear questions `0` and ambiguous questions `1`. Structure as:
+   ```json
+   {"id": 42, "input": "What is the first-line treatment for...", "output": "B", "label": 0}
+   {"id": 42, "input": "What medicine helps with that condition?", "output": "B", "label": 1}
+   ```
 
-3. **Select the optimal layer.** For each layer, fit a logistic regression (or single linear layer + sigmoid) on the train split of activations. Evaluate AUROC on a held-out validation split. Select layer `l*` with the highest AUROC. Expect the optimal layer to vary by model (e.g., layer 32 for Llama-3.1-8B, layer 9 for Qwen2.5-7B).
+2. **Split into train/test sets** preserving pair integrity — both members of a pair must be in the same split. Use 80/20 or load the pre-built CV-MedBench dataset:
+   ```python
+   from datasets import load_dataset
+   ds = load_dataset("yaokunl/CV-MedBench", "cv_medqa")
+   train_clear = ds["train_clear"]
+   train_vague = ds["train_vague"]
+   ```
 
-4. **Train the AU-Probe.** Fit the final single-layer linear probe at the selected layer using binary cross-entropy loss: `L = -u * log(score) - (1-u) * log(1-score)`. Use standard SGD or Adam. Training completes in seconds on CPU with 240+ examples.
+### Phase 2: Extract Hidden States
 
-5. **Integrate the probe into the inference pipeline.** Add a forward hook at layer `l*` that captures the activation of the last prompt token. After the hook fires (during the first forward pass), run the probe: `score = sigmoid(w^T * activation + b)`.
+3. **Run each question through the target LLM and capture hidden states.** Use a hook or the `output_hidden_states=True` flag in HuggingFace Transformers. Extract the hidden state of the **last token** at your chosen probe layer (middle-to-upper layers tend to be most informative — start with layer `L * 0.6` to `L * 0.8` where `L` is total layers):
+   ```python
+   from transformers import AutoModelForCausalLM, AutoTokenizer
+   import torch
 
-6. **Implement the routing threshold.** If `score > tau` (default `tau=0.5`), classify the input as ambiguous and route to the clarification branch. If `score <= tau`, proceed to normal answer generation. Tune `tau` on validation data if precision/recall tradeoffs matter for your domain.
+   model = AutoModelForCausalLM.from_pretrained(model_name, output_hidden_states=True)
+   tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-7. **Build the clarification branch.** When ambiguity is detected, generate a targeted clarification request. Prompt the LLM with the original query plus an instruction like: "The following medical question may be ambiguous. Identify what specific information is missing or unclear, and ask a focused follow-up question to resolve the ambiguity."
+   inputs = tokenizer(question, return_tensors="pt")
+   with torch.no_grad():
+       outputs = model(**inputs)
 
-8. **Re-run the pipeline after clarification.** Once the user provides additional context, concatenate it with the original query and re-run through the probe. If the score drops below `tau`, proceed to answer generation. If still ambiguous, request further clarification (with a max-rounds limit to avoid loops).
+   # Extract hidden state at chosen layer, last token position
+   probe_layer = int(model.config.num_hidden_layers * 0.7)
+   hidden = outputs.hidden_states[probe_layer][0, -1, :]  # shape: (hidden_dim,)
+   ```
 
-9. **Evaluate end-to-end.** Measure: (a) probe AUROC on held-out ambiguous/clear pairs, (b) downstream QA accuracy with vs. without the clarification gate, (c) false-positive rate (clear questions unnecessarily sent to clarification). Target: AUROC > 0.95, accuracy improvement > 5%, false-positive rate < 5%.
+4. **Store hidden-state vectors with their labels.** Save as numpy arrays or torch tensors. You need vectors for both the clear and ambiguous versions of each question in the training set.
 
-10. **Export and deploy.** Save the probe weights (`w`, `b`) and the selected layer index as a lightweight artifact (~32KB for a 4096-dim probe). The probe loads independently of model training and works across quantized or served versions of the same model architecture.
+### Phase 3: Train the AU-Probe
+
+5. **Train a linear classifier on the extracted hidden states.** A logistic regression is sufficient — the paper shows the AU direction is linear. Use scikit-learn or a single-layer PyTorch module:
+   ```python
+   from sklearn.linear_model import LogisticRegression
+   from sklearn.metrics import roc_auc_score
+   import numpy as np
+
+   X_train = np.stack(all_train_vectors)  # (N, hidden_dim)
+   y_train = np.array(all_train_labels)   # 0=clear, 1=ambiguous
+
+   probe = LogisticRegression(max_iter=1000, C=1.0)
+   probe.fit(X_train, y_train)
+
+   # Evaluate
+   X_test = np.stack(all_test_vectors)
+   y_test = np.array(all_test_labels)
+   auroc = roc_auc_score(y_test, probe.predict_proba(X_test)[:, 1])
+   print(f"AU-Probe AUROC: {auroc:.4f}")
+   ```
+
+6. **Select the operating threshold.** Use the test set to pick a probability threshold that balances false clarifications (annoying the user) against missed ambiguity (unsafe answers). Plot precision-recall or use Youden's J statistic on the ROC curve. A typical range is 0.5–0.7.
+
+### Phase 4: Deploy the Clarify-Before-Answer Pipeline
+
+7. **Wire the probe into the inference path.** On each incoming query:
+   - Tokenize and run a single forward pass through the LLM with hidden states enabled
+   - Extract the hidden state at the probe layer (last token)
+   - Pass through AU-Probe to get an ambiguity score
+   - If score >= threshold: generate a clarification request instead of an answer
+   - If score < threshold: proceed with standard answer generation
+
+8. **Generate targeted clarification requests.** When ambiguity is detected, do not just say "Can you clarify?" — identify *what* is underspecified. Prompt the LLM with the original query plus a system instruction like: "The following medical question is ambiguous. Identify what specific information is missing and ask the user to provide it." Return this as the response.
+
+9. **After clarification, re-run the pipeline.** Concatenate the user's clarification with the original query and pass through AU-Probe again. If still ambiguous, request further clarification. If clear, generate the answer.
+
+10. **Monitor and recalibrate.** Track the rate of clarification triggers, user satisfaction, and downstream answer accuracy. Re-train the probe periodically as the LLM is updated or the domain shifts.
 
 ## Concrete Examples
 
-**Example 1: Medical QA Pipeline with Ambiguity Gate**
+**Example 1: Medical QA Chatbot with Ambiguity Detection**
 
-User: "Build a medical QA system that detects vague patient questions and asks for clarification before answering."
+User: "Build a medical QA system that asks for clarification when questions are vague."
 
 Approach:
-1. Set up the LLM (e.g., Llama-3.1-8B-Instruct) with a forward hook at layer 32.
-2. Prepare contrastive pairs — clear: "What is the first-line treatment for stage II hypertension in a 55-year-old male with no comorbidities?" vs. ambiguous: "What should I take for high blood pressure?"
-3. Extract activations, train AU-Probe, integrate into pipeline.
+1. Load a medical LLM (e.g., BioMistral-7B) and CV-MedBench from HuggingFace
+2. Extract hidden states from layer 22 (of 32) for all train_clear and train_vague splits
+3. Train a logistic regression probe on the extracted vectors
+4. Build a FastAPI endpoint that accepts questions, runs AU-Probe, and either asks for clarification or answers
 
+Output structure:
 ```python
-import torch
-import torch.nn as nn
+# POST /ask {"question": "What helps with chest pain?"}
+# AU-Probe score: 0.82 (above threshold 0.6)
+{
+  "action": "clarify",
+  "message": "Your question about chest pain is too broad to answer safely. Could you specify: (1) Is this acute or chronic chest pain? (2) What is the patient's age and medical history? (3) Are there accompanying symptoms like shortness of breath or radiating arm pain?"
+}
 
-class AUProbe(nn.Module):
-    def __init__(self, hidden_dim: int):
-        super().__init__()
-        self.linear = nn.Linear(hidden_dim, 1)
-
-    def forward(self, activation: torch.Tensor) -> float:
-        return torch.sigmoid(self.linear(activation)).item()
-
-# Hook to capture activation at layer l*
-captured = {}
-def hook_fn(module, input, output):
-    # Grab last token's hidden state from residual stream
-    captured["activation"] = output[0][:, -1, :].detach()
-
-model.model.layers[32].register_forward_hook(hook_fn)
-
-# After running model forward pass on the input:
-probe = AUProbe(hidden_dim=4096)
-probe.load_state_dict(torch.load("au_probe_llama31_layer32.pt"))
-score = probe(captured["activation"])
-
-if score > 0.5:
-    # Route to clarification
-    clarification = generate_clarification(query)
-    print(f"Ambiguity detected (score={score:.3f}). Asking: {clarification}")
-else:
-    # Generate answer directly
-    answer = generate_answer(query)
-    print(f"Confident input (score={score:.3f}). Answer: {answer}")
+# POST /ask {"question": "What is the first-line treatment for stable angina in a 55-year-old male with no contraindications to beta-blockers?"}
+# AU-Probe score: 0.18 (below threshold 0.6)
+{
+  "action": "answer",
+  "message": "The first-line treatment for stable angina is a beta-blocker (e.g., metoprolol or atenolol) combined with sublingual nitroglycerin for acute symptom relief..."
+}
 ```
 
-**Example 2: Creating a Contrastive Training Dataset**
+**Example 2: Adding a Safety Layer to an Existing Chatbot**
 
-User: "Generate ambiguous versions of my medical QA dataset for AU-Probe training."
+User: "I have a LangChain-based medical chatbot. Add an ambiguity detection step before it answers."
 
 Approach:
-1. Take each clear question and apply three transformation strategies.
-2. Use an LLM to rewrite, then validate quality.
+1. Insert a custom LangChain `RunnablePassthrough` step before the LLM chain
+2. In this step, run the user query through the same LLM backbone (single forward pass), extract hidden states
+3. Load pre-trained AU-Probe weights, score the query
+4. Branch the chain: high AU score triggers a clarification prompt template; low score proceeds to the answer chain
 
 ```python
-AMBIGUITY_PROMPT = """Rewrite the following medical question to make it ambiguous.
-Apply ONE of these strategies:
-- Context omission: Remove critical clinical details (age, symptoms, history)
-- Semantic vagueness: Replace specific terms with vague ones ("the condition" instead of "type 2 diabetes")
-- Logical inconsistency: Add a mild contradiction while keeping it grammatical
+from langchain_core.runnables import RunnableBranch, RunnableLambda
 
-Original: {clear_question}
-Ambiguous version:"""
+def score_ambiguity(query: str) -> dict:
+    hidden = extract_hidden_state(model, tokenizer, query, layer=probe_layer)
+    score = au_probe.predict_proba(hidden.reshape(1, -1))[0, 1]
+    return {"query": query, "au_score": score}
 
-# Example transformations:
-# Clear: "What is the recommended HbA1c target for a 60-year-old with
-#          type 2 diabetes and chronic kidney disease stage 3?"
-# Ambiguous (context omission): "What should the blood sugar target be
-#          for someone with diabetes?"
-# Ambiguous (semantic vagueness): "What is the recommended level for
-#          the relevant test in a patient with the condition?"
+def is_ambiguous(state: dict) -> bool:
+    return state["au_score"] >= THRESHOLD
 
-# After generating pairs, validate:
-# 1. Same medical topic? (>95% agreement required)
-# 2. Genuinely ambiguous? (human or LLM-judge verification)
-# 3. Grammatically correct?
+chain = (
+    RunnableLambda(score_ambiguity)
+    | RunnableBranch(
+        (is_ambiguous, clarification_chain),
+        answer_chain  # default
+    )
+)
 ```
 
-**Example 3: Layer Selection Analysis**
+**Example 3: Benchmarking with CV-MedBench**
 
-User: "Which layer should I probe for ambiguity detection in my fine-tuned Qwen model?"
+User: "Evaluate how well my LLM handles ambiguous medical questions."
 
 Approach:
-1. Extract activations from all layers for your contrastive dataset.
-2. Train a probe per layer and compare AUROC.
+1. Load CV-MedBench test splits (both clear and vague)
+2. Run the LLM on both splits and measure accuracy on each
+3. Calculate the accuracy drop between clear and vague inputs — this is the "ambiguity gap"
+4. Train an AU-Probe and measure AUROC, ECE, and Brier score for ambiguity detection quality
 
-```python
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
-import numpy as np
+```bash
+# Using the AU-Med codebase
+git clone https://github.com/yaokunliu/AU-Med.git && cd AU-Med
+pip install -r requirements.txt
+bash run/medqa.sh  # runs evaluation on MedQA subset
+python scripts/analyze.py  # outputs AUROC, ECE, Brier scores to CSV
+```
 
-# activations[layer] shape: (n_samples, hidden_dim)
-# labels shape: (n_samples,) — 0=clear, 1=ambiguous
-
-results = {}
-for layer_idx in range(num_layers):
-    X = activations[layer_idx]
-    X_train, X_val = X[:split], X[split:]
-    y_train, y_val = labels[:split], labels[split:]
-
-    clf = LogisticRegression(max_iter=1000)
-    clf.fit(X_train, y_train)
-    probs = clf.predict_proba(X_val)[:, 1]
-    results[layer_idx] = roc_auc_score(y_val, probs)
-
-best_layer = max(results, key=results.get)
-print(f"Best layer: {best_layer} (AUROC: {results[best_layer]:.4f})")
-# Typical output: Best layer: 32 (AUROC: 0.9891)
+Expected output:
+```
+| Model         | Clear Acc | Vague Acc | Gap   | AU-Probe AUROC |
+|---------------|-----------|-----------|-------|----------------|
+| BioMistral-7B | 0.72      | 0.58      | -0.14 | 0.87           |
+| Llama-3-8B    | 0.68      | 0.55      | -0.13 | 0.84           |
 ```
 
 ## Best Practices
 
-- **Do:** Use residual-stream activations from the **final prompt token** specifically — this position aggregates the most input context due to causal attention.
-- **Do:** Start with as few as 240 contrastive pairs for training. The paper shows diminishing returns beyond ~960 samples, so invest in pair quality over quantity.
-- **Do:** Re-run layer selection when switching model architectures or after significant fine-tuning — the optimal layer shifts across models (layer 9 for Qwen vs. layer 32 for Llama).
-- **Do:** Log AU scores alongside model responses in production for monitoring ambiguity distribution drift over time.
-- **Avoid:** Using output-token probabilities or sampling-based uncertainty (semantic entropy) when you need real-time detection — these require 5-10x more compute than AU-Probe for worse AUROC.
-- **Avoid:** Training the probe on out-of-distribution data and expecting transfer. The paper shows OOD performance (MedExQA) is still strong but notably lower than in-distribution — validate on your target domain.
+- **Do:** Use the last token's hidden state for probe input — it aggregates the most context about the full query.
+- **Do:** Sweep multiple layers when training the probe (e.g., layers 60%–80% depth). The optimal layer varies by model architecture.
+- **Do:** Generate *specific* clarification questions that name the missing information, not generic "please clarify" responses.
+- **Do:** Evaluate with AUROC (discrimination), ECE (calibration), and Brier score (overall quality) — accuracy alone is misleading for imbalanced ambiguity detection.
+- **Avoid:** Using output token probabilities or entropy alone for ambiguity detection — these conflate aleatoric and epistemic uncertainty. The hidden-state probe isolates aleatoric uncertainty specifically.
+- **Avoid:** Setting the clarification threshold too low, which causes the system to ask for clarification on clear questions and frustrates users. Calibrate on held-out data with domain experts.
+- **Avoid:** Fine-tuning the LLM itself for ambiguity detection — the whole point of AU-Probe is that a frozen linear classifier suffices, keeping the approach lightweight and modular.
 
 ## Error Handling
 
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| Probe AUROC < 0.85 | Wrong layer selected, or contrastive pairs lack genuine ambiguity contrast | Re-run layer sweep; audit training pairs for quality |
-| High false-positive rate (clear queries flagged) | Threshold too low or training data biased toward ambiguous | Raise `tau` above 0.5; balance training set 50/50 |
-| Clarification loop (user keeps getting asked) | Clarification doesn't resolve the underspecification | Cap clarification rounds at 2; fall back to answering with a disclaimer |
-| Activation shape mismatch after quantization | Quantized model may change intermediate representations | Re-extract activations from the quantized model and retrain the probe |
-| Poor performance on long/multi-turn inputs | Probe trained on single-turn questions | Include multi-turn examples in contrastive set, or probe at the last user-message token specifically |
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Low AUROC (<0.70) on probe | Wrong layer selected, or insufficient contrast in training data | Sweep all layers to find the one with maximum probe AUROC; ensure clear/vague pairs have genuine information gaps, not just paraphrases |
+| High false clarification rate | Threshold too low; probe over-detects ambiguity | Raise the threshold; check if the training data contains clear questions that are stylistically similar to vague ones |
+| Probe doesn't generalize to new domains | Training data too narrow | Add domain-specific clear/vague pairs to the training set; consider layer-wise probing on the new domain |
+| OOM when extracting hidden states | Full hidden states for all layers stored simultaneously | Extract only the target layer's hidden state; use `torch.no_grad()` and offload to CPU immediately |
+| Clarification questions are too generic | LLM not prompted to identify specific missing info | Add a system prompt that instructs the LLM to list exactly which clinical details (age, symptoms, duration, history) are absent |
 
 ## Limitations
 
-- **Domain-specific training required.** A probe trained on medical QA pairs will not reliably detect ambiguity in legal or financial questions without retraining on domain-relevant contrastive pairs.
-- **Binary classification only.** The probe outputs a scalar ambiguity score but does not identify *what* is ambiguous or *what* clarification to request — that requires a separate generation step.
-- **Architecture-bound.** Probe weights are tied to a specific model's hidden dimension and layer structure. Switching from Llama-3.1-8B to Llama-3.1-70B requires re-extraction and retraining.
-- **Assumes static input.** The probe evaluates a single snapshot of the query. For conversational systems where context accumulates across turns, the activation at the final token of the concatenated history may not capture turn-level ambiguity well.
-- **Clarification simulation gap.** The paper evaluates clarification by substituting the clear version of a question (from CV-MedBench pairs), not by generating and incorporating real user responses. Real-world clarification quality depends on follow-up generation and user cooperation.
+- **Linear probe assumption:** The method assumes AU is linearly separable in hidden-state space. For some model architectures or highly nuanced ambiguity, a nonlinear probe may be needed — but this trades off simplicity.
+- **Domain transfer:** A probe trained on medical data will not transfer well to legal or financial QA without retraining on domain-appropriate clear/vague pairs.
+- **Single-model binding:** The probe is tied to a specific LLM's layer dimensions and representation space. Changing the LLM (or even its quantization level) requires retraining the probe.
+- **Aleatoric only:** This approach detects input ambiguity, not model knowledge gaps. A perfectly clear question about an obscure topic will pass the probe but may still get a wrong answer due to epistemic uncertainty.
+- **Clarification adds latency:** The pipeline introduces one round-trip of user interaction for ambiguous queries. In time-critical scenarios, consider whether the safety benefit justifies the delay.
+- **Requires access to hidden states:** Not applicable to closed-source LLM APIs (e.g., GPT-4) that don't expose intermediate representations. Only works with open-weight models where you control inference.
 
 ## Reference
 
-**Paper:** "Mind the Ambiguity: Aleatoric Uncertainty Quantification in LLMs for Safe Medical Question Answering" — Liu et al., WWW 2026. [arXiv:2601.17284](https://arxiv.org/abs/2601.17284v1). Key insight: aleatoric uncertainty is linearly encoded in LLM hidden states and detectable by a single-layer probe trained on <1000 contrastive pairs, enabling a clarify-before-answer pipeline with ~1 second overhead and 9.48% average accuracy gain.
+**Paper:** Liu et al., "Mind the Ambiguity: Aleatoric Uncertainty Quantification in LLMs for Safe Medical Question Answering," The Web Conference 2026 (WWW 2026). [arXiv:2601.17284](https://arxiv.org/abs/2601.17284v1)
+
+Look for: Section 3 (representation engineering analysis showing AU is linearly encoded), Section 4 (AU-Probe architecture and Clarify-Before-Answer pipeline), and Table 2 (layer-wise AUROC results showing which layers encode ambiguity best).
 
 **Code:** [github.com/yaokunliu/AU-Med](https://github.com/yaokunliu/AU-Med) | **Dataset:** [huggingface.co/datasets/yaokunl/CV-MedBench](https://huggingface.co/datasets/yaokunl/CV-MedBench)
