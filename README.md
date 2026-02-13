@@ -45,27 +45,25 @@ See **[INDEX.md](INDEX.md)** for the full categorized listing with descriptions 
 
 ## Categories
 
+Each skill is assigned to exactly one primary category. Counts add up to 1,033.
+
 | Category | Count | What it covers |
 |----------|-------|----------------|
-| **Agentic Systems** | 346 | Autonomous agents, tool use, planning, task decomposition |
-| **Reasoning & CoT** | 259 | Chain-of-thought, logical inference, step-by-step reasoning, math |
-| **RAG & Retrieval** | 207 | Retrieval-augmented generation, search, reranking, chunking |
-| **Fine-tuning & Training** | 191 | RLHF, GRPO, distillation, curriculum learning, reward models |
-| **Multimodal** | 175 | Vision-language, audio, video, speech, cross-modal reasoning |
-| **Multi-Agent Systems** | 124 | Agent collaboration, swarms, orchestration, debate frameworks |
-| **Prompt Engineering** | 123 | In-context learning, few-shot, zero-shot, instruction tuning |
-| **Security & Safety** | 116 | Jailbreaks, adversarial attacks, guardrails, prompt injection |
-| **Memory & Context** | 109 | Long-context handling, KV cache optimization, context compression |
-| **Code & Software Eng** | 108 | Code generation, bug detection, testing, refactoring, repair |
-| **Evaluation** | 263 | Benchmarks, metrics, scoring, model assessment |
-| **Efficiency** | 260 | Quantization, pruning, compression, acceleration |
-| **Data Processing** | 431 | ETL, parsing, extraction, annotation, pipelines |
-| **NLP & Text** | 80 | Classification, summarization, translation, NER, QA |
-| **Explainability** | 78 | Interpretability, attribution, causal analysis |
-| **Domain-Specific** | 47 | Medical, legal, financial, clinical applications |
-| **Knowledge Graphs** | 38 | Graph-based knowledge, ontologies, entity relations |
-
-Skills often span multiple categories. A RAG skill might also be tagged under Agentic Systems and Memory.
+| **Security & Safety** | 186 | Jailbreaks, adversarial attacks, guardrails, prompt injection, privacy, alignment |
+| **Multi-Agent Systems** | 152 | Agent collaboration, swarms, orchestration, debate frameworks |
+| **Code & Software Eng** | 142 | Code generation, bug detection, testing, refactoring, repair |
+| **RAG & Retrieval** | 114 | Retrieval-augmented generation, search, reranking, chunking |
+| **Multimodal** | 108 | Vision-language, audio, video, speech, cross-modal reasoning |
+| **Reasoning & CoT** | 86 | Chain-of-thought, logical inference, step-by-step reasoning, math |
+| **Fine-tuning & Training** | 68 | RLHF, GRPO, distillation, curriculum learning, reward models |
+| **Memory & Context** | 40 | Long-context handling, KV cache optimization, context compression |
+| **Evaluation** | 37 | Benchmarks, metrics, scoring, model assessment |
+| **Domain-Specific** | 35 | Medical, legal, financial, clinical, robotics |
+| **Efficiency** | 16 | Quantization, pruning, compression, acceleration |
+| **Knowledge Graphs** | 14 | Graph-based knowledge, ontologies, entity relations |
+| **NLP & Text** | 11 | Classification, summarization, translation, NER, QA |
+| **Data Processing** | 10 | ETL, parsing, extraction, annotation, pipelines |
+| **Other** | 14 | Prompt engineering, explainability, novel techniques |
 
 ## Skill Structure
 
