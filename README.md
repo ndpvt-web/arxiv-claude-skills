@@ -1,18 +1,20 @@
 # arXiv Claude Code Skills
 
-1,033 Claude Code skills derived from state-of-the-art arXiv research papers (Feb 2026). Each skill encodes a research technique as an actionable workflow with step-by-step instructions, concrete examples, and best practices.
+651 curated Claude Code skills derived from state-of-the-art arXiv research papers (Feb 2026). Each skill encodes a research technique as an actionable workflow with step-by-step instructions, concrete examples, and best practices.
+
+Every skill has been individually reviewed for practical usefulness -- skills requiring GPU training, model weight access, or custom hardware have been removed. Only actionable techniques that Claude Code can actually implement remain.
 
 ## Quick Stats
 
 | Metric | Value |
 |--------|-------|
-| Total skills | 1,033 |
-| Categories | 18 |
-| Avg lines per skill | 213 |
-| Skills with workflows | 99.2% |
-| Skills with examples | 99.8% |
-| Multi-category skills | 75% |
-| Duplicates | ~0% |
+| Total skills | 651 |
+| Categories | 17 |
+| Avg lines per skill | 211 |
+| Avg usefulness rating | 5.5/10 |
+| Highly rated skills (7+/10) | 130 |
+| Skills with workflows | 99%+ |
+| Skills with examples | 99%+ |
 
 ## How to Use
 
@@ -41,29 +43,31 @@ done
 
 ### Browse by category
 
-See **[INDEX.md](INDEX.md)** for the full categorized listing with descriptions and direct links.
+See **[INDEX.md](INDEX.md)** for the full categorized listing with descriptions, ratings, and direct links.
 
 ## Categories
 
-Each skill is assigned to exactly one primary category. Counts add up to 1,033.
+Each skill is assigned to exactly one category based on Claude analysis. Counts add up to 651.
 
-| Category | Count | What it covers |
-|----------|-------|----------------|
-| **Security & Safety** | 186 | Jailbreaks, adversarial attacks, guardrails, prompt injection, privacy, alignment |
-| **Multi-Agent Systems** | 152 | Agent collaboration, swarms, orchestration, debate frameworks |
-| **Code & Software Eng** | 142 | Code generation, bug detection, testing, refactoring, repair |
-| **RAG & Retrieval** | 114 | Retrieval-augmented generation, search, reranking, chunking |
-| **Multimodal** | 108 | Vision-language, audio, video, speech, cross-modal reasoning |
-| **Reasoning & CoT** | 86 | Chain-of-thought, logical inference, step-by-step reasoning, math |
-| **Fine-tuning & Training** | 68 | RLHF, GRPO, distillation, curriculum learning, reward models |
-| **Memory & Context** | 40 | Long-context handling, KV cache optimization, context compression |
-| **Evaluation** | 37 | Benchmarks, metrics, scoring, model assessment |
-| **Domain-Specific** | 35 | Medical, legal, financial, clinical, robotics |
-| **Efficiency** | 16 | Quantization, pruning, compression, acceleration |
-| **Knowledge Graphs** | 14 | Graph-based knowledge, ontologies, entity relations |
-| **NLP & Text** | 11 | Classification, summarization, translation, NER, QA |
-| **Data Processing** | 10 | ETL, parsing, extraction, annotation, pipelines |
-| **Other** | 14 | Prompt engineering, explainability, novel techniques |
+| Category | Count | Avg Rating | What it covers |
+|----------|-------|------------|----------------|
+| **Evaluation & Benchmarking** | 92 | 4.9/10 | Benchmarks, metrics, scoring, model assessment |
+| **Security & Safety** | 80 | 5.9/10 | Jailbreaks, adversarial attacks, guardrails, prompt injection, red teaming |
+| **Domain-Specific** | 60 | 5.1/10 | Medical, legal, financial, clinical, robotics applications |
+| **Agentic Systems** | 54 | 5.7/10 | Autonomous agents, tool use, planning, task decomposition |
+| **Code & Software Engineering** | 46 | 6.6/10 | Code generation, bug detection, testing, refactoring, repair |
+| **Reasoning & Chain-of-Thought** | 46 | 5.7/10 | Chain-of-thought, logical inference, step-by-step reasoning, math |
+| **Multi-Agent Systems** | 45 | 5.3/10 | Agent collaboration, swarms, orchestration, debate frameworks |
+| **RAG & Retrieval** | 42 | 5.6/10 | Retrieval-augmented generation, search, reranking, chunking |
+| **Efficiency & Optimization** | 34 | 5.4/10 | Quantization, pruning, compression, acceleration |
+| **Data Processing** | 28 | 6.0/10 | ETL, parsing, extraction, annotation, pipelines |
+| **Prompt Engineering** | 27 | 5.8/10 | In-context learning, few-shot, instruction design, prompt optimization |
+| **NLP & Text** | 24 | 4.9/10 | Classification, summarization, translation, NER, QA |
+| **Multimodal** | 21 | 5.0/10 | Vision-language, audio, video, speech, cross-modal reasoning |
+| **Memory & Context** | 20 | 5.6/10 | Long-context handling, KV cache optimization, context compression |
+| **Knowledge Graphs** | 18 | 5.2/10 | Graph-based knowledge, ontologies, entity relations |
+| **Explainability** | 7 | 5.0/10 | Interpretability, attribution, transparency, causal analysis |
+| **Fine-tuning & Training** | 7 | 4.3/10 | RLHF, GRPO, distillation, curriculum learning, reward models |
 
 ## Skill Structure
 
@@ -111,6 +115,7 @@ Skills were generated by a parallel pipeline that:
 4. Generated skills using Claude CLI (`claude --print`) with rich prompts containing the paper's full abstract, category, and technique analysis
 5. Filtered out non-viable papers (pure surveys, benchmark-only, position papers)
 6. Quality-checked: 99%+ have structured workflows and concrete examples
+7. Individually reviewed each skill with Claude for practical usefulness, removing 382 impractical skills (those requiring GPU training, model weight access, or custom hardware)
 
 The pipeline ran 4 parallel Claude CLI workers processing papers concurrently, with automatic resume, fallback generation, and progress checkpointing.
 
@@ -118,7 +123,7 @@ The pipeline ran 4 parallel Claude CLI workers processing papers concurrently, w
 
 ```
 README.md          -- This file
-INDEX.md           -- Full categorized skill index with searchable tables
+INDEX.md           -- Full categorized skill index with ratings and searchable tables
 skills/
   skill-name/
     SKILL.md       -- The skill file (install this to ~/.claude/skills/)
