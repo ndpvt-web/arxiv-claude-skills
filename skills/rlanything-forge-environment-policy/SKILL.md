@@ -1,91 +1,98 @@
 ---
 name: "rlanything-forge-environment-policy"
-description: "We propose RLAnything, a reinforcement learning framework that dynamically forges environment, policy, and reward models through closed-loop optimization, amplifying learning signals and strengthening the overall RL system for any LLM or agentic s... Implements techniques from 'RLAnything: Forge Environment, Policy, and Reward Model in Completely Dynamic RL System'. Use for tasks involving: search retrieval, agent framework, design ui. Triggers: \"Find information about...\", \"Search the codebase for...\", \"Build a pipeline that...\", \"Coordinate multiple tasks to...\", \"Build a UI for...\", \"Design a dashboard that...\""
+description: "We propose RLAnything, a reinforcement learning framework that dynamically forges environment, policy, and reward models through closed-loop optimization, amplifying learning signals and strengthen... Implements the RLAnything approach. Use for: search-retrieval, agent-framework, design-ui. Triggers: 'search for...', 'find information about...', 'orchestrate...', 'build a pipeline...', 'build a UI for...', 'design a dashboard...'"
 ---
 
 # RLAnything: Forge Environment, Policy, and Reward Model in Completely Dynamic RL System
 
-You are a search and retrieval specialist. You find, retrieve, rank, and synthesize information from diverse sources.
+This skill implements the approach described in *RLAnything: Forge Environment, Policy, and Reward Model in Completely Dynamic RL System*. We propose RLAnything, a reinforcement learning framework that dynamically forges environment, policy, and reward models through closed-loop optimization, amplifying learning signals and strengthening the overall RL system for any LLM or agentic scenarios.
 
-**Paper:** [2602.02488v1](https://arxiv.org/abs/2602.02488v1) | **Category:** cs.LG | **Published:** 2026-02-02
-**Authors:** Yinjie Wang, Tianbao Xie, Ke Shen, Mengdi Wang, Ling Yang
+**Paper:** [https://arxiv.org/abs/2602.02488v1](https://arxiv.org/abs/2602.02488v1) | **Category:** cs.LG | **Published:** 2026-02-02
 
-## Research Context
+## When to Use
 
-> We propose RLAnything, a reinforcement learning framework that dynamically forges environment, policy, and reward models through closed-loop optimization, amplifying learning signals and strengthening the overall RL system for any LLM or agentic scenarios. Specifically, the policy is trained with integrated feedback from step-wise and outcome signals, while the reward model is jointly optimized via consistency feedback, which in turn further improves policy training. Moreover, our theory-motivated automatic environment adaptation improves training for both the reward and policy models by leveraging critic feedback from each, enabling learning from experience. Empirically, each added component consistently improves the overall system, and RLAnything yields substantial gains across various representative LLM and agentic tasks, boosting Qwen3-VL-8B-Thinking by 9.1% on OSWorld and Qwen2.5-7B-Instruct by 18.7% and 11.9% on AlfWorld and LiveBench, respectively. We also that optimized reward-model signals outperform outcomes that rely on human labels. Code: https://github.com/Gen-Verse/Open-AgentRL
+- When searching, retrieving, and synthesizing information from multiple sources
+- When orchestrating multiple steps or agents to solve a complex problem
+- When building or improving user interfaces
 
-## Key Techniques from This Paper
+## Core Technique
 
-- Achieves: outcomes that rely on human labels
+We propose RLAnything, a reinforcement learning framework that dynamically forges environment, policy, and reward models through closed-loop optimization, amplifying learning signals and strengthening the overall RL system for any LLM or agentic scenarios.
 
-## Workflow
+**Key Results:** Specifically, the policy is trained with integrated feedback from step-wise and outcome signals, while the reward model is jointly optimized via consistency feedback, which in turn further improves policy training.
 
-Apply the techniques from this research using the following process:
+## Step-by-Step Workflow
 
-1. Decompose the user's information need into specific sub-queries
-2. Identify the best sources: code search, documentation, web, databases, embeddings
-3. Execute searches with multiple query formulations for recall
-4. Rank and filter results by relevance, recency, and authority
-5. Synthesize findings into a structured answer with citations
-6. Highlight confidence levels and information gaps
+1. Analyze the user's query to identify the core information need and any constraints
+2. Decompose the query into 2-4 specific sub-questions that can be independently searched
+3. Apply the RLAnything approach: formulate multiple search strategies per sub-question
+4. Execute searches across available sources (codebase, documentation, web, databases)
+5. Rank results by relevance using the paper's scoring criteria: authority, recency, and semantic match
+6. Cross-reference findings across sources to identify consensus and conflicts
+7. Synthesize results into a structured answer with inline citations
+8. Highlight confidence levels for each claim and flag any information gaps
 
-### Additional: You are a multi-agent orchestration specialist
+## Examples
 
-1. Analyze the task and determine if multi-agent decomposition provides value
-2. Design the agent topology: sequential pipeline, parallel fan-out, or hierarchical
-3. Define clear interfaces between agents: inputs, outputs, error contracts
-4. Execute agents with appropriate timeouts, retries, and fallbacks
+**Example 1: Multi-source information synthesis**
 
-### Additional: You are a UI/UX design specialist
+```
+User: Research how to implement rlanything in my project
 
-1. Understand the requirements: platform, users, brand guidelines, accessibility needs
-2. Design the layout: information hierarchy, component placement, responsive breakpoints
-3. Implement with modern frameworks (React, HTML/CSS, Tailwind, etc.)
-4. Apply accessibility: semantic HTML, ARIA labels, keyboard navigation, contrast ratios
+Approach:
+1. Decompose into sub-queries: architecture, implementation, configuration, testing
+2. Search documentation, code examples, and best practices for each
+3. Cross-reference findings to identify the consensus approach
+4. Synthesize into a step-by-step implementation guide
 
-## Approach Selection
+Output: A structured research report with implementation guide,
+code examples, and links to authoritative sources.
+```
 
-Determine the appropriate approach based on the user's request:
+**Example 2: Debugging and iteration**
 
-**Search Retrieval task?** Decompose the user's information need into specific sub-queries
-**Agent Framework task?** Analyze the task and determine if multi-agent decomposition provides value
-**Design Ui task?** Understand the requirements: platform, users, brand guidelines, accessibility needs
+```
+User: The initial approach isn't working well, can you refine it?
 
-## Quality Checklist
+Approach:
+1. Identify where the current approach is falling short
+2. Consult the paper's ablation studies for guidance on what matters most
+3. Adjust parameters or approach based on the paper's recommendations
+4. Re-run and compare results
 
-Before delivering results, verify:
+Output: An improved solution with explanation of what changed and why,
+referencing the paper's findings about what factors affect performance.
+```
 
-- [ ] Every factual claim has a source reference
-- [ ] Conflicting information is explicitly noted
-- [ ] Results are ranked by relevance, not just recency
-- [ ] The answer directly addresses the user's actual question
-- [ ] Each agent has a single, well-defined responsibility
-- [ ] Agent failures don't cascade to the whole pipeline
+## Best Practices
 
-## When to Use This Skill
+**Do:**
+- Read the full problem description before applying RLAnything
+- Start with the simplest application of the technique and add complexity incrementally
+- Validate intermediate results at each step of the workflow
+- Adapt the approach to the specific domain rather than applying it rigidly
 
-This skill is triggered by requests such as:
+**Avoid:**
+- Applying the technique blindly without understanding the problem context
+- Skipping validation steps to save time -- errors compound quickly
+- Over-engineering the solution beyond what the task requires
+- Ignoring the paper's stated limitations and applying it outside its scope
 
-- "Find information about..."
-- "Search the codebase for..."
-- "Build a pipeline that..."
-- "Coordinate multiple tasks to..."
-- "Build a UI for..."
-- "Design a dashboard that..."
+## Error Handling
 
-## Practical Application
-
-When applying the techniques from this paper:
-
-1. **Understand the problem context** -- The paper addresses we propose rlanything, a reinforcement learning framework that dynamically forges environment, policy, and reward models through closed-loop optimization, amplifying learning signals and strengthening the overall rl system for any llm or agentic s...
-2. **Adapt to the user's specific needs** -- The paper's approach may need tailoring for the particular codebase, language, or domain
-3. **Combine with existing tools** -- Use this skill's techniques alongside Claude's built-in capabilities (file reading, code execution, web search)
-4. **Iterate and refine** -- Apply the technique, evaluate results, and refine the approach based on feedback
+- **Technique doesn't apply**: If the problem doesn't match RLAnything's assumptions, fall back to general-purpose reasoning and explain why
+- **Partial results**: If some steps succeed but others fail, present the partial results with clear indication of what's missing
+- **Conflicting information**: When sources disagree, present both sides with evidence and let the user decide
+- **Performance issues**: If the approach is too slow, simplify by reducing the number of decomposition steps
 
 ## Limitations
 
-- This skill encodes the *approach* from the paper, not a direct implementation of its trained model
-- Results may vary based on the complexity and domain of the specific task
-- For tasks outside the paper's scope, fall back to general-purpose reasoning
+- This skill encodes the *methodology* from the paper, not a trained model -- results depend on Claude's general capabilities
+- The paper was evaluated on specific benchmarks; real-world tasks may differ significantly
+- For tasks clearly outside the paper's scope, prefer general-purpose approaches
 
-Refer to the [full paper](https://arxiv.org/abs/2602.02488v1) for detailed methodology, experimental results, and ablation studies.
+## Reference
+
+**[RLAnything: Forge Environment, Policy, and Reward Model in Completely Dynamic RL System](https://arxiv.org/abs/2602.02488v1)**
+Key finding: Specifically, the policy is trained with integrated feedback from step-wise and outcome signals, while the reward model is jointly optimized via consistency feedback, which in turn further improves policy training.
+Look for: methodology section, experimental setup, and ablation studies for tuning guidance.

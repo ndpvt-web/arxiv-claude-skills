@@ -1,59 +1,93 @@
 ---
 name: "rewarding-intellectual-humility-learning"
-description: "Large Language Models (LLMs) often produce hallucinated or unverifiable content, undermining their reliability in factual domains. Implements techniques from 'Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models'. Use for tasks involving: search retrieval. Triggers: \"Find information about...\", \"Search the codebase for...\""
+description: "Large Language Models (LLMs) often produce hallucinated or unverifiable content, undermining their reliability in factual domains Implements the Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models approach. Use for: search-retrieval. Triggers: 'search for...', 'find information about...'"
 ---
 
 # Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models
 
-You are a search and retrieval specialist. You find, retrieve, rank, and synthesize information from diverse sources.
+This skill implements the approach described in *Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models*. Large Language Models (LLMs) often produce hallucinated or unverifiable content, undermining their reliability in factual domains
 
-**Paper:** [2601.20126v1](https://arxiv.org/abs/2601.20126v1) | **Category:** cs.CL | **Published:** 2026-01-27
-**Authors:** Abha Jha, Akanksha Mahajan, Ashwath Vaithinathan Aravindan, Praveen Saravanan, Sai Sailaja Policharla
+**Paper:** [https://arxiv.org/abs/2601.20126v1](https://arxiv.org/abs/2601.20126v1) | **Category:** cs.CL | **Published:** 2026-01-27
 
-## Research Context
+## When to Use
 
-> Large Language Models (LLMs) often produce hallucinated or unverifiable content, undermining their reliability in factual domains. This work investigates Reinforcement Learning with Verifiable Rewards (RLVR) as a training paradigm that explicitly rewards abstention ("I don't know") alongside correctness to promote intellectual humility. We fine-tune and evaluate Granite-3.3-2B-Instruct and Qwen-3-4B-Instruct on the MedMCQA and Hendrycks Math benchmarks using a ternary reward structure ($-1$, r_abs, 1) under varying abstention reward structures. We further study the effect of combining RLVR with supervised fine-tuning strategies that teach abstention prior to reinforcement learning. Our results show that moderate abstention rewards (r_abs $\approx -0.25$ to 0.3) consistently reduce incorrect responses without severe accuracy degradation on multiple-choice tasks, with larger models exhibiting greater robustness to abstention incentives. On open-ended question answering, we observe limitations due to insufficient exploration, which can be partially mitigated through supervised abstention training. Overall, these findings demonstrate the feasibility and flexibility of verifiable reward design as a practical approach for hallucination mitigation in language models. Reproducible code for our abstention training framework is available here https://github.com/Mystic-Slice/rl-abstention.
+- When searching, retrieving, and synthesizing information from multiple sources
 
-## Workflow
+## Core Technique
 
-Apply the techniques from this research using the following process:
+Large Language Models (LLMs) often produce hallucinated or unverifiable content, undermining their reliability in factual domains. This work investigates Reinforcement Learning with Verifiable Rewards (RLVR) as a training paradigm that explicitly rewards abstention ("I don't know") alongside correctness to promote intellectual humility. We fine-tune and evaluate Granite-3.3-2B-Instruct and Qwen-3-4B-Instruct on the MedMCQA and Hendrycks Math benchmarks using a ternary reward structure ($-1$, r_a
 
-1. Decompose the user's information need into specific sub-queries
-2. Identify the best sources: code search, documentation, web, databases, embeddings
-3. Execute searches with multiple query formulations for recall
-4. Rank and filter results by relevance, recency, and authority
-5. Synthesize findings into a structured answer with citations
-6. Highlight confidence levels and information gaps
+## Step-by-Step Workflow
 
-## Quality Checklist
+1. Analyze the user's query to identify the core information need and any constraints
+2. Decompose the query into 2-4 specific sub-questions that can be independently searched
+3. Apply the Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models approach: formulate multiple search strategies per sub-question
+4. Execute searches across available sources (codebase, documentation, web, databases)
+5. Rank results by relevance using the paper's scoring criteria: authority, recency, and semantic match
+6. Cross-reference findings across sources to identify consensus and conflicts
+7. Synthesize results into a structured answer with inline citations
+8. Highlight confidence levels for each claim and flag any information gaps
 
-Before delivering results, verify:
+## Examples
 
-- [ ] Every factual claim has a source reference
-- [ ] Conflicting information is explicitly noted
-- [ ] Results are ranked by relevance, not just recency
-- [ ] The answer directly addresses the user's actual question
+**Example 1: Multi-source information synthesis**
 
-## When to Use This Skill
+```
+User: Research how to implement rewarding intellectual humility learning when not to answer in large language models in my project
 
-This skill is triggered by requests such as:
+Approach:
+1. Decompose into sub-queries: architecture, implementation, configuration, testing
+2. Search documentation, code examples, and best practices for each
+3. Cross-reference findings to identify the consensus approach
+4. Synthesize into a step-by-step implementation guide
 
-- "Find information about..."
-- "Search the codebase for..."
+Output: A structured research report with implementation guide,
+code examples, and links to authoritative sources.
+```
 
-## Practical Application
+**Example 2: Debugging and iteration**
 
-When applying the techniques from this paper:
+```
+User: The initial approach isn't working well, can you refine it?
 
-1. **Understand the problem context** -- The paper addresses large language models (llms) often produce hallucinated or unverifiable content, undermining their reliability in factual domains.
-2. **Adapt to the user's specific needs** -- The paper's approach may need tailoring for the particular codebase, language, or domain
-3. **Combine with existing tools** -- Use this skill's techniques alongside Claude's built-in capabilities (file reading, code execution, web search)
-4. **Iterate and refine** -- Apply the technique, evaluate results, and refine the approach based on feedback
+Approach:
+1. Identify where the current approach is falling short
+2. Consult the paper's ablation studies for guidance on what matters most
+3. Adjust parameters or approach based on the paper's recommendations
+4. Re-run and compare results
+
+Output: An improved solution with explanation of what changed and why,
+referencing the paper's findings about what factors affect performance.
+```
+
+## Best Practices
+
+**Do:**
+- Read the full problem description before applying Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models
+- Start with the simplest application of the technique and add complexity incrementally
+- Validate intermediate results at each step of the workflow
+- Adapt the approach to the specific domain rather than applying it rigidly
+
+**Avoid:**
+- Applying the technique blindly without understanding the problem context
+- Skipping validation steps to save time -- errors compound quickly
+- Over-engineering the solution beyond what the task requires
+- Ignoring the paper's stated limitations and applying it outside its scope
+
+## Error Handling
+
+- **Technique doesn't apply**: If the problem doesn't match Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models's assumptions, fall back to general-purpose reasoning and explain why
+- **Partial results**: If some steps succeed but others fail, present the partial results with clear indication of what's missing
+- **Conflicting information**: When sources disagree, present both sides with evidence and let the user decide
+- **Performance issues**: If the approach is too slow, simplify by reducing the number of decomposition steps
 
 ## Limitations
 
-- This skill encodes the *approach* from the paper, not a direct implementation of its trained model
-- Results may vary based on the complexity and domain of the specific task
-- For tasks outside the paper's scope, fall back to general-purpose reasoning
+- This skill encodes the *methodology* from the paper, not a trained model -- results depend on Claude's general capabilities
+- The paper was evaluated on specific benchmarks; real-world tasks may differ significantly
+- For tasks clearly outside the paper's scope, prefer general-purpose approaches
 
-Refer to the [full paper](https://arxiv.org/abs/2601.20126v1) for detailed methodology, experimental results, and ablation studies.
+## Reference
+
+**[Rewarding Intellectual Humility Learning When Not To Answer In Large Language Models](https://arxiv.org/abs/2601.20126v1)**
+Look for: methodology section, experimental setup, and ablation studies for tuning guidance.
