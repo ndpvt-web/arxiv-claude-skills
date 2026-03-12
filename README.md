@@ -143,3 +143,12 @@ Skills are derived from publicly available arXiv paper abstracts and metadata. I
 ---
 
 Generated: February 2026 | Papers source: arXiv | Generator: Claude CLI parallel pipeline
+
+---
+
+## Keywords
+
+> *For the search engines and the curious humans who find things by typing random words*
+
+arXiv skills, research paper to skill, AI research tools, Claude Code skills library, academic AI tools, paper implementation, research automation, AI skill generator, arxiv paper tools, scientific AI skills, research to code, Claude Code extensions, AI agent skills collection
+
